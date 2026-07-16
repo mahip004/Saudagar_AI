@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Raksha Bandhan",
+    "month": 8,
+    "approx_date": "2026-08-28",
+    "impact_categories": ["Confectionery", "Chocolates", "Gift Packs", "Pooja Items"],
+    "description": "Sisters tie rakhis on brothers' wrists. Heavy demand for premium sweets and chocolate gift packs."
+  },
+  {
+    "name": "Ganesh Chaturthi",
+    "month": 9,
+    "approx_date": "2026-09-17",
+    "impact_categories": ["Flour", "Sugar", "Ghee", "Coconuts", "Incense Sticks"],
+    "description": "10-day festival honoring Ganesha. High demand for modak ingredients and pooja items."
+  },
+  {
+    "name": "Diwali",
+    "month": 11,
+    "approx_date": "2026-11-08",
+    "impact_categories": ["Chocolates", "Biscuits & Cookies", "Ghee", "Cooking Oil", "Dry Fruits", "Cleaning Supplies"],
+    "description": "Festival of Lights. Massive gifting and home cooking demand across all categories."
+  },
+  {
+    "name": "Christmas & New Year",
+    "month": 12,
+    "approx_date": "2026-12-25",
+    "impact_categories": ["Cakes & Bakery", "Soft Drinks", "Snacks", "Chocolates"],
+    "description": "Year-end celebrations. High demand for party snacks, carbonated beverages, and baking supplies."
+  },
+  {
+    "name": "Holi",
+    "month": 3,
+    "approx_date": "2027-03-22",
+    "impact_categories": ["Color Powders", "Snacks", "Soft Drinks", "Sweets Ingredients"],
+    "description": "Festival of Colors. High demand for snacks, beverages, and traditional sweets ingredients."
+  }
+]

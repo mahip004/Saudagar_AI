@@ -1,0 +1,44 @@
+# Environment & Secrets
+backend/.env
+backend/service-account.json
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Flutter
+frontend/.dart_tool/
+frontend/.packages
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.metadata
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# OS
+desktop.ini
+
+backend/service-account.json.json
+backend/service-account.json
+*.json.json
