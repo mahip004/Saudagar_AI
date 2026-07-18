@@ -1,5 +1,6 @@
 # Environment & Secrets
 backend/.env
+backend/.env.*
 backend/service-account.json
 *.key
 *.pem
@@ -42,3 +43,8 @@ desktop.ini
 backend/service-account.json.json
 backend/service-account.json
 *.json.json
+
+backend/.env.gemini-override
+backend/.env.groq-override
+backend/.env
+*.env

@@ -113,6 +113,17 @@ def capture_demand(request: CaptureDemandRequest, background_tasks: BackgroundTa
             transcript=request.transcript
         )
         
+        if not event:
+            logger.error("Text demand capture pipeline completed without extracting an event.")
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Unable to extract structured demand from the provided transcript. "
+                    "This may be caused by Gemini quota exhaustion or an invalid transcript. "
+                    "Please verify your Gemini API quota and try again."
+                )
+            )
+        
         # Trigger Demand Intelligence Agent in the background (Pandas metrics calculation)
         background_tasks.add_task(
             demand_intelligence_agent.process_demand_metrics, 
@@ -128,8 +139,12 @@ def capture_demand(request: CaptureDemandRequest, background_tasks: BackgroundTa
             purchase_completed=event["purchase_completed"],
             timestamp=event["timestamp"],
             needs_confirmation=event.get("needs_confirmation", False),
-            candidates=event.get("candidates", [])
+            candidates=event.get("candidates", []),
+            confidence=event.get("confidence", 0.0),
+            availability=event.get("availability", "unknown")
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error capturing demand: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -159,6 +174,17 @@ async def upload_audio(
             transcript=transcript
         )
         
+        if not event:
+            logger.error("Audio upload pipeline completed without extracting a demand event.")
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Unable to extract structured demand from the transcript. "
+                    "This may be due to Gemini quota limits or an invalid transcription. "
+                    "Please check your Gemini API quota and retry."
+                )
+            )
+        
         # 3. Trigger Demand Intelligence Agent in background
         background_tasks.add_task(
             demand_intelligence_agent.process_demand_metrics,
@@ -176,9 +202,13 @@ async def upload_audio(
                 purchase_completed=event["purchase_completed"],
                 timestamp=event["timestamp"],
                 needs_confirmation=event.get("needs_confirmation", False),
-                candidates=event.get("candidates", [])
+                candidates=event.get("candidates", []),
+                confidence=event.get("confidence", 0.0),
+                availability=event.get("availability", "unknown")
             )
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error handling audio upload: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

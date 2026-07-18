@@ -11,7 +11,7 @@ logger = logging.getLogger("saudagar_ai.agent.demand_capture")
 
 class DemandCapturePipeline:
     def __init__(self):
-        self.confidence_threshold = 0.80
+        self.verification_threshold = 0.82
 
     def run(self, shop_id: str, transcript: str) -> List[Dict[str, Any]]:
         logger.info(f"[DemandCapture] Starting 7-stage pipeline for shop='{shop_id}'")
@@ -24,8 +24,8 @@ class DemandCapturePipeline:
             
         events = stage1_output["events"]
         
-        # STAGE 2: Validator
-        valid_events = self._validate_events(events)
+        # STAGE 2: independent Gemini verification plus structural grounding checks.
+        valid_events = self._verify_events(events, transcript)
         
         processed_events = []
         
@@ -40,36 +40,13 @@ class DemandCapturePipeline:
                 logger.warning(f"[Stage 3] Post-check failed for '{cleaned_phrase}'. Falling back to raw phrase.")
                 cleaned_phrase = raw_phrase
                 
-            # STAGE 4: RapidFuzz Match
-            # matching_service now needs to check per-shop aliases first, then catalog
-            match_result = matching_service.match_product_stage4(cleaned_phrase, shop_id)
-            score = match_result.get("score", 0.0)
-            canonical = match_result.get("canonical_name")
-            stage_resolved = match_result.get("stage_resolved", "rapidfuzz")
-            
-            # STAGE 5: Confidence Check
-            if score >= self.confidence_threshold and canonical:
-                logger.info(f"[Stage 5] Confident match >= {self.confidence_threshold}: {canonical}")
-                # Complete event
+            # STAGE 4: Gemini maps the extracted product to the live catalog; no static word map.
+            catalog = matching_service.get_catalog_names()
+            llm_canonical = gemini_service.canonical_match_stage6(cleaned_product=cleaned_phrase, catalog=catalog)
+            if llm_canonical != "UNKNOWN" and llm_canonical in catalog:
+                canonical, stage_resolved = llm_canonical, "gemini_catalog_match"
             else:
-                # STAGE 6: Canonical Matcher (LLM)
-                logger.info(f"[Stage 6] Score < {self.confidence_threshold}. Escalating to Canonical Matcher.")
-                catalog = matching_service.get_catalog_names()
-                llm_canonical = gemini_service.canonical_match_stage6(cleaned_product=cleaned_phrase, catalog=catalog)
-                
-                if llm_canonical != "UNKNOWN" and llm_canonical in catalog:
-                    canonical = llm_canonical
-                    stage_resolved = "canonical_matcher"
-                    logger.info(f"[Stage 6] Resolved to: {canonical}")
-                else:
-                    # STAGE 7: Ask Shopkeeper
-                    logger.info("[Stage 7] UNKNOWN. Triggering shopkeeper WhatsApp escalation.")
-                    canonical = None
-                    stage_resolved = "shopkeeper"
-                    
-                    # Need to fetch top candidates for WhatsApp UI
-                    candidates = matching_service.get_top_candidates(cleaned_phrase, limit=3)
-                    firestore_service.flag_for_shopkeeper_whatsapp(shop_id, raw_phrase, candidates)
+                canonical, stage_resolved = gemini_service.identify_product_name(cleaned_phrase), "gemini_identified"
             
             # Save the final event to Firestore
             processed_event = self._save_event(
@@ -78,52 +55,48 @@ class DemandCapturePipeline:
                 canonical_product=canonical,
                 availability=availability,
                 evidence=evidence,
-                stage_resolved=stage_resolved
+                stage_resolved=stage_resolved,
+                confidence=event["confidence"]
             )
             processed_events.append(processed_event)
             
         return processed_events
 
-    def _validate_events(self, events: List[Dict]) -> List[Dict]:
-        """STAGE 2: Pure deterministic validation."""
+    def _verify_events(self, events: List[Dict], transcript: str) -> List[Dict]:
+        """Reject events unless Gemini independently verifies their transcript grounding."""
         valid = []
-        filler_blocklist = {"bhaiya ek", "ek", "haan", "de do", "please", "khatam", "theek hai"}
-        negation_cues = {"nahi", "khatam", "out of stock", "nahi hai", "nahin", "nahi milega"}
-        
         for event in events:
-            raw = event.get("customer_requested", "").strip()
-            avail = event.get("availability", "unknown")
-            evidence = event.get("evidence", "").lower()
-            pronoun = event.get("resolved_from_pronoun", False)
-            
-            # Rule 1: customer_requested is empty or filler-only
-            if not raw or raw.lower() in filler_blocklist:
-                logger.info(f"[Stage 2] Rejecting event: empty or filler word '{raw}'")
+            verified = gemini_service.verify_demand_event(transcript, event)
+            # A concrete customer request with no shopkeeper answer is still valuable demand.
+            # It has no product-to-answer mapping to verify, so use a lower extraction threshold.
+            threshold = 0.65 if verified and verified.get("availability") == "unknown" else self.verification_threshold
+            if not verified or not verified["verified"] or verified["confidence"] < threshold:
+                logger.info("[Stage 2] Gemini rejected or was unsure of proposed event: %s", event)
                 continue
-                
-            # Rule 2: unavailable but evidence has no negation cue
-            if avail == "unavailable":
-                if not any(cue in evidence for cue in negation_cues):
-                    logger.info(f"[Stage 2] Downgrading availability for '{raw}' because evidence lacks negation.")
-                    avail = "unknown"
-                    event["availability"] = "unknown"
-                    
-            # Rule 3: resolved_from_pronoun but no earlier event (simplistic check: must not be first event)
-            if pronoun and not valid:
-                logger.info(f"[Stage 2] Rejecting hallucinated pronoun resolution for '{raw}'.")
+            product = verified["customer_requested"].strip()
+            evidence = verified["evidence"].strip()
+            if not product or product.casefold() not in transcript.casefold():
+                logger.info("[Stage 2] Rejected ungrounded product: %s", product)
                 continue
-                
-            valid.append(event)
+            if evidence and evidence.casefold() not in transcript.casefold():
+                logger.info("[Stage 2] Rejected ungrounded evidence: %s", evidence)
+                continue
+            valid.append({**event, **verified})
         return valid
 
     def _validate_cleaner_output(self, raw: str, cleaned: str) -> bool:
-        """STAGE 3 POST-CHECK: Token subset check."""
+        """STAGE 3 POST-CHECK: Token subset check (supports Devanagari)."""
+        if not cleaned or not cleaned.strip():
+            return False
         raw_tokens = set(raw.lower().split())
         cleaned_tokens = set(cleaned.lower().split())
-        return cleaned_tokens.issubset(raw_tokens)
+        if cleaned_tokens.issubset(raw_tokens):
+            return True
+        # Allow cleaned phrase if it is a contiguous substring of the raw phrase
+        return cleaned.lower().strip() in raw.lower()
 
     def _save_event(self, shop_id: str, raw_phrase: str, canonical_product: Optional[str], 
-                    availability: str, evidence: str, stage_resolved: str) -> Dict[str, Any]:
+                    availability: str, evidence: str, stage_resolved: str, confidence: float) -> Dict[str, Any]:
         """Saves the demand event to Firestore with stage_resolved metric."""
         avail_bool = (availability == "available")
         event = DemandEventModel(
@@ -138,6 +111,8 @@ class DemandCapturePipeline:
         event_dict = event.model_dump()
         event_dict["timestamp"] = event_dict["timestamp"].isoformat()
         event_dict["evidence"] = evidence
+        event_dict["confidence"] = confidence
+        event_dict["availability"] = availability
         event_dict["stage_resolved"] = stage_resolved
         
         event_id = firestore_service.add_demand_event(event_dict)

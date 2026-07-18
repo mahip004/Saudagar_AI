@@ -5,6 +5,9 @@ from typing import Optional
 class Settings(BaseSettings):
     # API Keys
     GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
     SARVAM_API_KEY: Optional[str] = None
     OPENWEATHER_API_KEY: Optional[str] = None
     
@@ -16,7 +19,8 @@ class Settings(BaseSettings):
     PORT: int = 8001
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Local override is loaded after .env so a rotated key takes precedence.
+        env_file=(".env", ".env.gemini-override", ".env.groq-override"),
         env_file_encoding="utf-8",
         extra="ignore"
     )

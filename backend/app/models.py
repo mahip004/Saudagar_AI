@@ -25,6 +25,8 @@ class CaptureDemandResponse(BaseModel):
     timestamp: str
     needs_confirmation: bool = False
     candidates: List[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    availability: str = "unknown"
 
 class ConfirmAliasRequest(BaseModel):
     shop_id: str

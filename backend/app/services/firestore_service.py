@@ -69,7 +69,7 @@ class MockFirestoreClient:
                 "prod_1": {"canonical_name": "Maggi Noodles", "aliases": ["maggi", "maggie", "migi", "maggie noodles"], "category": "Packaged Foods", "brand": "Nestle"},
                 "prod_2": {"canonical_name": "Amul Butter 100g", "aliases": ["amul butter", "butter amul", "makkhan"], "category": "Dairy", "brand": "Amul"},
                 "prod_3": {"canonical_name": "Colgate Strong Teeth 150g", "aliases": ["colgate", "toothpaste colgate", "colgat"], "category": "Personal Care", "brand": "Colgate-Palmolive"},
-                "prod_4": {"canonical_name": "Cadbury Dairy Milk 100g", "aliases": ["dairy milk", "chocolate dairy milk", "dary milk", "cadbury chocolate"], "category": "Confectionery", "brand": "Cadbury"},
+                "prod_4": {"canonical_name": "Cadbury Dairy Milk 100g", "aliases": ["dairy milk", "chocolate dairy milk", "dary milk", "cadbury chocolate", "chocolate"], "category": "Confectionery", "brand": "Cadbury"},
             },
             "demand_events": {},
             "demand_summary": {},
@@ -138,7 +138,7 @@ class FirestoreService:
                     {"canonical_name": "Maggi Noodles", "aliases": ["maggi", "maggie", "migi", "maggie noodles"], "category": "Packaged Foods", "brand": "Nestle"},
                     {"canonical_name": "Amul Butter 100g", "aliases": ["amul butter", "butter amul", "makkhan"], "category": "Dairy", "brand": "Amul"},
                     {"canonical_name": "Colgate Strong Teeth 150g", "aliases": ["colgate", "toothpaste colgate", "colgat"], "category": "Personal Care", "brand": "Colgate-Palmolive"},
-                    {"canonical_name": "Cadbury Dairy Milk 100g", "aliases": ["dairy milk", "chocolate dairy milk", "dary milk", "cadbury chocolate"], "category": "Confectionery", "brand": "Cadbury"},
+                    {"canonical_name": "Cadbury Dairy Milk 100g", "aliases": ["dairy milk", "chocolate dairy milk", "dary milk", "cadbury chocolate", "chocolate"], "category": "Confectionery", "brand": "Cadbury"},
                 ]
                 for p in default_products:
                     # Insert directly without triggering refresh cache on each one to avoid recursion
