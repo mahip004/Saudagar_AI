@@ -45,8 +45,19 @@ class SarvamService:
                 return "dairy milk chocolate hai kya"
             return "bhaiya maggi hai kya?"
 
+        import time
+        start_time = time.time()
+        audio_size = len(audio_bytes) if audio_bytes else 0
+        logger.info(f"[Trace] Audio Received: {filename} ({audio_size} bytes)")
+        
+        if audio_size == 0:
+            logger.error(f"[Trace] ERROR: Received empty audio bytes! The Flutter app sent 0 bytes.")
+            raise ValueError("Received empty audio file (0 bytes). Recording may have failed on the client.")
+        
+        logger.info(f"[Trace] Sending to Sarvam API: {self.api_url}")
+
         headers = {
-            "api-key": self.api_key
+            "api-subscription-key": self.api_key
         }
         
         # Sarvam speech-to-text accepts multipart form-data
@@ -54,8 +65,9 @@ class SarvamService:
             "file": (filename, audio_bytes, "audio/wav")
         }
         data = {
-            "model": "saaras_v3",
-            "language_code": "hi-IN"  # Default to Hindi-English mix
+            "model": "saaras:v3",
+            "language_code": "hi-IN",  # Default to Hindi-English mix
+            "mode": "transcribe"
         }
 
         try:
@@ -68,16 +80,21 @@ class SarvamService:
                     timeout=30.0
                 )
                 
+                elapsed = time.time() - start_time
+                logger.info(f"[Trace] Sarvam Response Received in {elapsed:.2f}s (Status: {response.status_code})")
+                
                 if response.status_code == 200:
                     result = response.json()
                     transcript = result.get("transcript", "")
-                    logger.info(f"Sarvam AI transcribed: '{transcript}'")
+                    logger.info(f"[Trace] Transcript Generated: '{transcript}'")
+                    logger.info(f"[Trace] Transcript Sent to Demand Capture Agent")
                     return transcript
                 else:
-                    logger.error(f"Sarvam API error {response.status_code}: {response.text}")
-                    return "bhaiya maggi hai kya?"
-        except Exception as e:
-            logger.error(f"Failed to connect to Sarvam AI STT API: {e}")
-            return "bhaiya maggi hai?"
+                    error_text = response.text
+                    logger.error(f"[Trace] Sarvam API error {response.status_code}: {error_text}")
+                    raise RuntimeError(f"Sarvam API returned {response.status_code}: {error_text}")
+        except httpx.HTTPError as e:
+            logger.error(f"[Trace] Network error calling Sarvam AI STT API: {e}")
+            raise RuntimeError(f"Failed to connect to Sarvam AI: {e}")
 
 sarvam_service = SarvamService()

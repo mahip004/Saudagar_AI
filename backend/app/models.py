@@ -23,6 +23,13 @@ class CaptureDemandResponse(BaseModel):
     alternative: Optional[str] = None
     purchase_completed: bool
     timestamp: str
+    needs_confirmation: bool = False
+    candidates: List[str] = Field(default_factory=list)
+
+class ConfirmAliasRequest(BaseModel):
+    shop_id: str
+    canonical_name: str
+    new_alias: str
 
 class ProductModel(BaseModel):
     canonical_name: str

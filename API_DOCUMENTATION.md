@@ -178,6 +178,23 @@ Allows viewing and inserting catalog templates containing aliases for fuzzy matc
 ```
   * **Response**: Registered Product document with Firestore ID.
 
+* **Confirm Product Alias**: `POST /confirm-product-alias`
+  * **Request Body**:
+```json
+{
+  "shop_id": "shop_001",
+  "canonical_name": "Maggi Noodles",
+  "new_alias": "migi"
+}
+```
+  * **Response (200 OK)**:
+```json
+{
+  "status": "success",
+  "message": "Alias 'migi' added to 'Maggi Noodles'"
+}
+```
+
 ---
 
 ## 7. Submit Feedback

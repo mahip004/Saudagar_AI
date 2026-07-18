@@ -1,15 +1,20 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:frontend/utils/audio_reader_stub.dart'
+    if (dart.library.io) 'package:frontend/utils/audio_reader_io.dart'
+    if (dart.library.html) 'package:frontend/utils/audio_reader_web.dart';
 
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/firestore_service.dart';
 import 'package:frontend/config.dart';
+import 'package:frontend/l10n/app_localizations.dart';
+import 'package:frontend/providers/locale_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,6 +23,7 @@ void main() {
       providers: [
         Provider<ApiService>(create: (_) => ApiService()),
         Provider<FirestoreService>(create: (_) => FirestoreService()),
+        ChangeNotifierProvider<LocaleProvider>(create: (_) => LocaleProvider()),
       ],
       child: const SaudagarApp(),
     ),
@@ -29,10 +35,23 @@ class SaudagarApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localeProvider = Provider.of<LocaleProvider>(context);
+    
     return MaterialApp(
-      title: 'Saudagar AI - Kirana Intelligence',
+      title: 'Saudagar AI',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
+      locale: localeProvider.locale,
+      supportedLocales: const [
+        Locale('en', ''),
+        Locale('hi', ''),
+      ],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0F111A), // Deep obsidian background
@@ -70,6 +89,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   bool _isLoading = false;
   String? _lastTranscript;
   Map<String, dynamic>? _lastExtractedEvent;
+  int _currentIndex = 0;
+  
+  final Set<String> _unselectedRecommendationProducts = {};
 
   // Pre-configured phrases for simulation testing (multi-speaker conversations)
   final List<String> _simulatedPhrases = [
@@ -103,6 +125,19 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final loc = AppLocalizations.of(context);
+    if (loc != null) {
+      // If currently displaying default idle message, update it to the active language
+      if (_recordingStatus == "Tap Mic to Record Demand" || 
+          _recordingStatus == "मांग रिकॉर्ड करने के लिए माइक दबाएं") {
+        _recordingStatus = loc.translate('tapMicToRecord');
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _pulseController.dispose();
     _audioRecorder.dispose();
@@ -116,50 +151,53 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         setState(() {
           _isRecording = false;
           _isLoading = true;
-          _recordingStatus = "Processing voice on Sarvam AI...";
+          _recordingStatus = AppLocalizations.of(context)?.translate('processingSarvam') ?? "Processing voice on Sarvam AI...";
         });
 
         final path = await _audioRecorder.stop();
         if (path == null) {
           setState(() {
             _isLoading = false;
-            _recordingStatus = "Audio recording failed";
+            _recordingStatus = AppLocalizations.of(context)?.translate('audioFailed') ?? "Audio recording failed";
           });
           return;
         }
 
-        // On Web, path is a blob URL. Fetch bytes.
-        Uint8List audioBytes;
-        if (kIsWeb) {
-          final res = await http.get(Uri.parse(path));
-          audioBytes = res.bodyBytes;
-        } else {
-          // On mobile, read bytes (simulated or direct file load depending on package support)
-          // For web/mobile safety, we can fallback to mock if direct path read is unavailable
-          audioBytes = Uint8List(0); // In mobile tests, path is used by system
-        }
+        // Platform-aware: reads blob URL on web, file path on mobile
+        final Uint8List audioBytes = await readRecordedAudioBytes(path);
+        debugPrint('[Audio] Read ${audioBytes.length} bytes from recording');
 
         // Send to backend via Multipart
         final response = await apiService.uploadAudio(audioBytes, 'recording.wav');
-        setState(() {
-          _isLoading = false;
-          _recordingStatus = "Tap Mic to Record Demand";
-          _lastTranscript = response['transcript'];
-          _lastExtractedEvent = response['event'];
-        });
+        if (response != null) {
+          final event = response['event'];
+          setState(() {
+            _isLoading = false;
+            _recordingStatus = AppLocalizations.of(context)?.translate('tapMicToRecord') ?? "Tap Mic to Record Demand";
+            _lastTranscript = response['transcript'];
+            _lastExtractedEvent = event;
+          });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFF10B981),
-            content: Text("Captured: '${_lastTranscript}'"),
-          ),
-        );
+          final isHindi = AppLocalizations.of(context)?.locale.languageCode == 'hi';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: const Color(0xFF10B981),
+              content: Text("${isHindi ? 'कैप्चर किया गया' : 'Captured'}: '${_lastTranscript}'"),
+            ),
+          );
+          
+          // Show confirmation dialog if backend requests it
+          if (event['needs_confirmation'] == true) {
+            final candidates = List<String>.from(event['candidates'] ?? []);
+            _showAliasConfirmationDialog(context, apiService, event['product'], candidates);
+          }
+        }
       } else {
         // Check permissions
         if (await _audioRecorder.hasPermission()) {
           setState(() {
             _isRecording = true;
-            _recordingStatus = "Recording voice... Tap again to send";
+            _recordingStatus = AppLocalizations.of(context)?.translate('recordingVoice') ?? "Recording voice... Tap again to send";
           });
           // Start recording
           await _audioRecorder.start(
@@ -168,7 +206,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           );
         } else {
           setState(() {
-            _recordingStatus = "Microphone permission denied";
+            _recordingStatus = AppLocalizations.of(context)?.translate('microphonePermissionDenied') ?? "Microphone permission denied";
           });
         }
       }
@@ -176,7 +214,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       setState(() {
         _isRecording = false;
         _isLoading = false;
-        _recordingStatus = "Error: $e";
+        _recordingStatus = "${AppLocalizations.of(context)?.translate('error') ?? 'Error: '}$e";
       });
     }
   }
@@ -185,24 +223,30 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   Future<void> _simulateTextCapture(ApiService apiService, String text) async {
     setState(() {
       _isLoading = true;
-      _recordingStatus = "Sending simulation to cloud...";
+      _recordingStatus = AppLocalizations.of(context)?.translate('simulationSending') ?? "Sending simulation to cloud...";
     });
 
     try {
       final response = await apiService.captureDemandText(text);
       setState(() {
         _isLoading = false;
-        _recordingStatus = "Tap Mic to Record Demand";
+        _recordingStatus = AppLocalizations.of(context)?.translate('tapMicToRecord') ?? "Tap Mic to Record Demand";
         _lastTranscript = text;
         _lastExtractedEvent = response;
       });
 
+      final isHindi = AppLocalizations.of(context)?.locale.languageCode == 'hi';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF10B981),
-          content: Text("Processed: \"$text\""),
+          content: Text("${isHindi ? 'संसाधित वाक्य' : 'Processed'}: \"$text\""),
         ),
       );
+      
+      if (response['needs_confirmation'] == true) {
+        final candidates = List<String>.from(response['candidates'] ?? []);
+        _showAliasConfirmationDialog(context, apiService, response['product'], candidates);
+      }
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -211,11 +255,80 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     }
   }
 
+  void _showAliasConfirmationDialog(BuildContext context, ApiService apiService, String rawProduct, List<String> candidates) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final loc = AppLocalizations.of(context);
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            top: 20,
+            left: 16,
+            right: 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                loc?.translate("verifyProduct") ?? "Verify Product",
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                loc?.iHeardNotSure(rawProduct) ?? "I heard '$rawProduct', but I'm not sure which product it is. Please select:",
+                style: const TextStyle(color: Color(0x99FFFFFF), fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              ...candidates.map((canonical) => ListTile(
+                leading: const Icon(Icons.check_circle_outline, color: Colors.blue),
+                title: Text(canonical, style: const TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  try {
+                    await apiService.confirmProductAlias(canonical, rawProduct);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(loc?.learnedAlias(rawProduct, canonical) ?? "Learned! '$rawProduct' is now '$canonical'")),
+                      );
+                    }
+                  } catch (e) {
+                    print("Error: $e");
+                  }
+                },
+              )).toList(),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.cancel_outlined, color: Colors.red),
+                title: Text(loc?.translate("noneOfThese") ?? "None of these"),
+                onTap: () {
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final apiService = Provider.of<ApiService>(context, listen: false);
     final firestoreService = Provider.of<FirestoreService>(context, listen: false);
-    final isDesktop = MediaQuery.of(context).size.width > 900;
+
+    // List of widgets for each tab
+    final List<Widget> _pages = [
+      _buildVoiceCard(apiService),
+      _buildDemandSummaryPanel(firestoreService),
+      _buildInsightsPanel(firestoreService),
+      _buildRecommendationsPanel(firestoreService, apiService),
+    ];
 
     return Scaffold(
       body: SafeArea(
@@ -224,56 +337,47 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // HEADER
+              // HEADER (Persistent)
               _buildHeader(apiService),
               const SizedBox(height: 16),
 
-              // MAIN CONTENT
+              // MAIN CONTENT (Switched based on active tab)
               Expanded(
-                child: isDesktop
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left side: Voice & Live Logs
-                          Expanded(
-                            flex: 4,
-                            child: Column(
-                              children: [
-                                _buildVoiceCard(apiService),
-                                const SizedBox(height: 16),
-                                Expanded(child: _buildInsightsPanel(firestoreService)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          // Right side: Demand summary and recommendations
-                          Expanded(
-                            flex: 5,
-                            child: Column(
-                              children: [
-                                Expanded(flex: 3, child: _buildDemandSummaryPanel(firestoreService)),
-                                const SizedBox(height: 16),
-                                Expanded(flex: 4, child: _buildRecommendationsPanel(firestoreService, apiService)),
-                              ],
-                            ),
-                          ),
-                        ]
-                      )
-                    : ListView(
-                        children: [
-                          _buildVoiceCard(apiService),
-                          const SizedBox(height: 16),
-                          SizedBox(height: 280, child: _buildInsightsPanel(firestoreService)),
-                          const SizedBox(height: 16),
-                          SizedBox(height: 320, child: _buildDemandSummaryPanel(firestoreService)),
-                          const SizedBox(height: 16),
-                          SizedBox(height: 380, child: _buildRecommendationsPanel(firestoreService, apiService)),
-                        ],
-                      ),
+                child: _pages[_currentIndex],
               ),
             ],
           ),
         ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF161925),
+        selectedItemColor: const Color(0xFF10B981),
+        unselectedItemColor: const Color(0x61FFFFFF),
+        items: [
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.mic),
+            label: AppLocalizations.of(context)?.translate('tabCapture') ?? 'Capture',
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.bar_chart),
+            label: AppLocalizations.of(context)?.translate('tabDemand') ?? 'Demand',
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.insights),
+            label: AppLocalizations.of(context)?.translate('tabInsights') ?? 'Insights',
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.shopping_cart),
+            label: AppLocalizations.of(context)?.translate('tabAdvisor') ?? 'Advisor',
+          ),
+        ],
       ),
     );
   }
@@ -318,30 +422,46 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
             ],
           ),
         ),
-        ElevatedButton.icon(
-          onPressed: () async {
-            try {
-              final res = await apiService.forceBIUpdate();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Triggered Business Intelligence Agent refresh!"),
-                  backgroundColor: Color(0xFF6366F1),
-                ),
-              );
-            } catch (e) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("Error triggering BI: $e"), backgroundColor: Colors.red),
-              );
-            }
-          },
-          icon: const Icon(Icons.refresh, size: 16),
-          label: const Text("Refresh Insights"),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF161925),
-            foregroundColor: Colors.white,
-            side: BorderSide(color: const Color(0xFF6366F1).withOpacity(0.3)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          ),
+        Row(
+          children: [
+            IconButton(
+              icon: Icon(
+                Provider.of<LocaleProvider>(context).locale.languageCode == 'hi'
+                    ? Icons.g_translate
+                    : Icons.language,
+                color: const Color(0xFF6366F1),
+              ),
+              onPressed: () {
+                Provider.of<LocaleProvider>(context, listen: false).toggleLanguage();
+              },
+              tooltip: "Toggle Language",
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                try {
+                  final res = await apiService.forceBIUpdate();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Triggered Business Intelligence Agent refresh!"),
+                      backgroundColor: Color(0xFF6366F1),
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error triggering BI: $e"), backgroundColor: Colors.red),
+                  );
+                }
+              },
+              icon: const Icon(Icons.refresh, size: 16),
+              label: Text(AppLocalizations.of(context)?.translate('refreshInsights') ?? "Refresh Insights"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF161925),
+                foregroundColor: Colors.white,
+                side: BorderSide(color: const Color(0xFF6366F1).withOpacity(0.3)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -367,9 +487,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Demand Capture Terminal',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              Text(
+                AppLocalizations.of(context)?.translate('demandCaptureTerminal') ?? 'Demand Capture Terminal',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               if (_isLoading)
                 const SizedBox(
@@ -434,11 +554,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
           const Divider(height: 32, color: Color(0x1AFFFFFF)),
           
           // SIMULATOR PANEL
-          const Align(
+          Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Hinglish Demo Simulator (Tap to trigger pipeline)',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0x61FFFFFF)),
+              AppLocalizations.of(context)?.translate('hinglishSimulator') ?? 'Hinglish Demo Simulator (Tap to trigger pipeline)',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0x61FFFFFF)),
             ),
           ),
           const SizedBox(height: 8),
@@ -481,9 +601,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "Last Extracted Event",
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6366F1)),
+                      Text(
+                        AppLocalizations.of(context)?.translate('lastExtractedEvent') ?? "Last Extracted Event",
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6366F1)),
                       ),
                       Text(
                         _lastExtractedEvent!['timestamp'] != null
@@ -495,17 +615,23 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    "Raw: \"$_lastTranscript\"",
+                    "${AppLocalizations.of(context)?.translate('rawLabel') ?? 'Raw: '}\"${_lastTranscript}\"",
                     style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0x8AFFFFFF)),
                   ),
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      _buildMiniBadge("Matched", _lastExtractedEvent!['canonical_product'] ?? 'Unknown', const Color(0xFF6366F1)),
+                      _buildMiniBadge(
+                        AppLocalizations.of(context)?.translate('matchedLabel').replaceAll(": ", "") ?? "Matched", 
+                        _lastExtractedEvent!['canonical_product'] ?? 'Unknown', 
+                        const Color(0xFF6366F1)
+                      ),
                       const SizedBox(width: 8),
                       _buildMiniBadge(
-                        "Status", 
-                        _lastExtractedEvent!['available'] == true ? "Available" : "Unavailable (Stockout)", 
+                        AppLocalizations.of(context)?.translate('statusLabel').replaceAll(": ", "") ?? "Status", 
+                        _lastExtractedEvent!['available'] == true 
+                            ? (AppLocalizations.of(context)?.translate('availableLabel') ?? "Available") 
+                            : (AppLocalizations.of(context)?.translate('unavailableLabel') ?? "Unavailable (Stockout)"), 
                         _lastExtractedEvent!['available'] == true ? const Color(0xFF10B981) : const Color(0xFFEF4444),
                       ),
                     ],
@@ -545,13 +671,13 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.query_stats, color: Color(0xFF6366F1), size: 18),
-              SizedBox(width: 8),
+              const Icon(Icons.query_stats, color: Color(0xFF6366F1), size: 18),
+              const SizedBox(width: 8),
               Text(
-                'Business Insights Agent',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                AppLocalizations.of(context)?.translate('businessInsights') ?? 'Business Insights',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ],
           ),
@@ -564,11 +690,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                   return Center(child: Text("Error loading insights: ${snapshot.error}", style: const TextStyle(fontSize: 12)));
                 }
                 if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      "No business insights stored in Firestore yet.\nClick 'Refresh Insights' above to trigger.",
+                      AppLocalizations.of(context)?.translate('noInsights') ?? "No business insights stored in Firestore yet.\nClick 'Refresh Insights' above to trigger.",
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
+                      style: const TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
                     ),
                   );
                 }
@@ -584,9 +710,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     _buildSubCard(
                       icon: Icons.cloud,
                       iconColor: Colors.blueAccent,
-                      title: "Local Weather Forecast",
-                      subtitle: "City: ${weather['city'] ?? 'Mumbai'} • ${weather['temp'] ?? '--'}°C (${weather['condition'] ?? 'Unknown'})",
-                      detail: "Humidity: ${weather['humidity'] ?? '--'}% • Source: ${weather['source'] ?? '--'}",
+                      title: AppLocalizations.of(context)?.translate('weatherForecast') ?? "Local Weather Forecast",
+                      subtitle: "${AppLocalizations.of(context)?.translate('cityLabel') ?? 'City: '}${weather['city'] == 'Mumbai' ? (AppLocalizations.of(context)?.translate('mumbai') ?? 'Mumbai') : (weather['city'] ?? 'Mumbai')} • ${weather['temp'] ?? '--'}°C (${weather['condition'] ?? 'Unknown'})",
+                      detail: "${AppLocalizations.of(context)?.translate('humidityLabel') ?? 'Humidity: '}${weather['humidity'] ?? '--'}% • ${AppLocalizations.of(context)?.translate('sourceLabel') ?? 'Source: '}${weather['source'] ?? '--'}",
                     ),
                     const SizedBox(height: 8),
                     // Festival Card
@@ -594,9 +720,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                       _buildSubCard(
                         icon: Icons.calendar_month,
                         iconColor: Colors.orangeAccent,
-                        title: "Festival Demand Alert",
-                        subtitle: "${festivals[0]['name']} is ${festivals[0]['days_away']} days away",
-                        detail: "Gearing up: ${List<String>.from(festivals[0]['impact_categories'] ?? []).join(', ')}",
+                        title: AppLocalizations.of(context)?.translate('festivalAlert') ?? "Festival Demand Alert",
+                        subtitle: "${festivals[0]['name']} ${festivals[0]['days_away']} ${AppLocalizations.of(context)?.translate('daysAway') ?? 'days away'}",
+                        detail: "${AppLocalizations.of(context)?.translate('gearingUp') ?? 'Gearing up: '}${List<String>.from(festivals[0]['impact_categories'] ?? []).join(', ')}",
                       ),
                       const SizedBox(height: 8),
                     ],
@@ -604,9 +730,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     _buildSubCard(
                       icon: Icons.trending_up,
                       iconColor: const Color(0xFF10B981),
-                      title: "Monsoon Search Spikes",
-                      subtitle: "Instant Noodles: ${trends['packaged_foods'] ?? 50}% • Beverages: ${trends['beverages'] ?? 50}%",
-                      detail: "Customers searching hot drinks/foods due to wet weather.",
+                      title: AppLocalizations.of(context)?.translate('monsoonSpikes') ?? "Monsoon Search Spikes",
+                      subtitle: "${AppLocalizations.of(context)?.translate('instantNoodles') ?? 'Instant Noodles'}: ${trends['packaged_foods'] ?? 50}% • ${AppLocalizations.of(context)?.translate('beverages') ?? 'Beverages'}: ${trends['beverages'] ?? 50}%",
+                      detail: AppLocalizations.of(context)?.translate('monsoonDetail') ?? "Customers searching hot drinks/foods due to wet weather.",
                     ),
                   ],
                 );
@@ -665,13 +791,13 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.analytics, color: Color(0xFF10B981), size: 18),
-              SizedBox(width: 8),
+              const Icon(Icons.analytics, color: Color(0xFF10B981), size: 18),
+              const SizedBox(width: 8),
               Text(
-                'Demand Intelligence Metrics',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                AppLocalizations.of(context)?.translate('demandMetricsTitle') ?? 'Demand Intelligence Metrics',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ],
           ),
@@ -684,11 +810,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                   return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(fontSize: 12)));
                 }
                 if (!snapshot.hasData || snapshot.data!.isEmpty || snapshot.data!['demand_scores'] == null) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      "No demand events analyzed yet.\nUse the simulator or mic to create demand.",
+                      AppLocalizations.of(context)?.translate('noDemandEvents') ?? "No demand events analyzed yet.\nUse the simulator or mic to create demand.",
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
+                      style: const TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
                     ),
                   );
                 }
@@ -734,7 +860,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xB3FFFFFF)),
                                     ),
                                     Text(
-                                      "Score: ${score.toStringAsFixed(1)} (Stockout: $unavailCount / Req: $totalReq)",
+                                      "${AppLocalizations.of(context)?.translate('scoreLabel') ?? 'Score: '}${score.toStringAsFixed(1)} (Stockout: $unavailCount / Req: $totalReq)",
                                       style: const TextStyle(fontSize: 11, color: Color(0x61FFFFFF)),
                                     )
                                   ],
@@ -761,7 +887,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                         const Icon(Icons.bolt, color: Color(0xFFF59E0B), size: 14),
                         const SizedBox(width: 4),
                         Text(
-                          "Trending Products: ${List<String>.from(data['trending_products'] ?? []).join(', ')}",
+                          "${AppLocalizations.of(context)?.translate('trendingProducts') ?? 'Trending Products: '}${List<String>.from(data['trending_products'] ?? []).join(', ')}",
                           style: const TextStyle(fontSize: 11, color: Color(0x8AFFFFFF), fontStyle: FontStyle.italic),
                         ),
                       ],
@@ -787,13 +913,25 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.shopping_bag, color: Color(0xFF6366F1), size: 18),
-              SizedBox(width: 8),
-              Text(
-                'AI Procurement Agent Advisor',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+              Row(
+                children: [
+                  const Icon(Icons.shopping_bag, color: Color(0xFF6366F1), size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    AppLocalizations.of(context)?.translate('procurementAdvisor') ?? 'AI Procurement Agent Advisor',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.share, color: Color(0xFF10B981), size: 18),
+                tooltip: AppLocalizations.of(context)?.translate('sharePurchaseList') ?? "Share Purchase List",
+                onPressed: () {
+                  _shareRecommendations(context, firestoreService);
+                },
               ),
             ],
           ),
@@ -806,11 +944,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                   return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(fontSize: 12)));
                 }
                 if (!snapshot.hasData || snapshot.data!.isEmpty || snapshot.data!['recommendations'] == null) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      "No procurement recommendations generated.\nAdd demand out-of-stocks to trigger Procurement reasoning.",
+                      AppLocalizations.of(context)?.translate('noRecommendations') ?? "No procurement recommendations generated.\nAdd demand out-of-stocks to trigger Procurement reasoning.",
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
+                      style: const TextStyle(fontSize: 12, color: Color(0x3DFFFFFF)),
                     ),
                   );
                 }
@@ -818,10 +956,10 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 final recs = snapshot.data!['recommendations'] as List<dynamic>;
 
                 if (recs.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      "Inventory levels are optimal.",
-                      style: TextStyle(fontSize: 12, color: Color(0x61FFFFFF)),
+                      AppLocalizations.of(context)?.translate('inventoryOptimal') ?? "Inventory levels are optimal.",
+                      style: const TextStyle(fontSize: 12, color: Color(0x61FFFFFF)),
                     ),
                   );
                 }
@@ -834,7 +972,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     final action = rec['action'] ?? 'Increase order';
                     final reason = rec['reason'] ?? 'High demand';
                     final priority = rec['priority'] ?? 'MEDIUM';
-                    final pct = rec['percentage_increase'];
 
                     Color priorityColor = const Color(0xFF6366F1);
                     if (priority == "HIGH") {
@@ -842,6 +979,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                     } else if (priority == "MEDIUM") {
                       priorityColor = const Color(0xFFF59E0B);
                     }
+
+                    bool isChecked = !_unselectedRecommendationProducts.contains(product);
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -857,6 +996,22 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              // Checklist Checkbox
+                              Checkbox(
+                                value: isChecked,
+                                activeColor: const Color(0xFF10B981),
+                                checkColor: Colors.black,
+                                visualDensity: VisualDensity.compact,
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val == true) {
+                                      _unselectedRecommendationProducts.remove(product);
+                                    } else {
+                                      _unselectedRecommendationProducts.add(product);
+                                    }
+                                  });
+                                },
+                              ),
                               Expanded(
                                 child: Text(
                                   product,
@@ -907,17 +1062,24 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                   );
                                 },
                                 style: TextButton.styleFrom(
-                                  foregroundColor: Color(0x4DFFFFFF),
+                                  foregroundColor: const Color(0x4DFFFFFF),
                                   padding: const EdgeInsets.symmetric(horizontal: 10),
                                 ),
-                                child: const Text("Dismiss", style: TextStyle(fontSize: 11)),
+                                child: Text(AppLocalizations.of(context)?.translate('dismiss') ?? "Dismiss", style: const TextStyle(fontSize: 11)),
                               ),
                               const SizedBox(width: 8),
                               ElevatedButton(
                                 onPressed: () async {
                                   await apiService.submitFeedback(index.toString(), "ACCEPTED");
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text("Accepted recommendation: Order placed for $product"), backgroundColor: const Color(0xFF10B981)),
+                                    SnackBar(
+                                      content: Text(
+                                        AppLocalizations.of(context)?.locale.languageCode == 'hi'
+                                          ? "अनुशंसा स्वीकृत: $product का ऑर्डर दिया गया"
+                                          : "Accepted recommendation: Order placed for $product"
+                                      ),
+                                      backgroundColor: const Color(0xFF10B981),
+                                    ),
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
@@ -927,7 +1089,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                                child: const Text("Accept & Order", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                child: Text(AppLocalizations.of(context)?.translate('acceptOrder') ?? "Accept & Order", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           )
@@ -942,5 +1104,43 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
         ],
       ),
     );
+  }
+
+  void _shareRecommendations(BuildContext context, FirestoreService firestoreService) async {
+    try {
+      final snapshot = await firestoreService.listenToRecommendations().first;
+      if (snapshot.isEmpty || snapshot['recommendations'] == null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)?.translate('noRecommendationsToShare') ?? "No recommendations to share.")));
+        return;
+      }
+      
+      final recs = snapshot['recommendations'] as List<dynamic>;
+      final selectedRecs = recs.where((r) {
+        final rec = r as Map<String, dynamic>;
+        final product = rec['product'] ?? 'Generic';
+        return !_unselectedRecommendationProducts.contains(product);
+      }).toList();
+
+      if (selectedRecs.isEmpty) {
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)?.translate('listIsEmpty') ?? "List is empty.")));
+         return;
+      }
+
+      StringBuffer sb = StringBuffer();
+      sb.writeln("🛒 ${AppLocalizations.of(context)?.translate('purchaseList') ?? 'Purchase List'} 🛒\n");
+      
+      for (var r in selectedRecs) {
+        final rec = r as Map<String, dynamic>;
+        sb.writeln("☑ ${rec['product']}");
+        sb.writeln("  Priority: ${rec['priority']} | Action: ${rec['action']}");
+        sb.writeln("  Reason: ${rec['reason']}\n");
+      }
+      
+      sb.writeln(AppLocalizations.of(context)?.translate('generatedBySaudagar') ?? "Generated by Saudagar AI Kirana Intelligence.");
+      
+      await Share.share(sb.toString());
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error sharing: $e")));
+    }
   }
 }

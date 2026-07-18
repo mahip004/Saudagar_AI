@@ -1,0 +1,44 @@
+{
+  "appTitle": "Saudagar AI",
+  "tabCapture": "Capture",
+  "tabDemand": "Demand",
+  "tabInsights": "Insights",
+  "tabAdvisor": "Advisor",
+  "tapMicToRecord": "Tap Mic to Record Demand",
+  "recordingVoice": "Recording voice... Tap again to send",
+  "sendingToCloud": "Sending to cloud...",
+  "microphonePermissionDenied": "Microphone permission denied",
+  "demandIntelligence": "Demand Intelligence",
+  "unavailableItems": "Top Unavailable Items",
+  "customerRequests": "Top Customer Requests",
+  "demandScores": "Predictive Demand Scores",
+  "businessInsights": "Business Insights",
+  "currentWeather": "Current Weather",
+  "trendingSearch": "Trending Search",
+  "upcomingFestivals": "Upcoming Festivals",
+  "daysAway": "days away",
+  "refreshInsights": "Refresh Insights",
+  "procurementAdvisor": "Procurement Advisor",
+  "generatePurchaseList": "Generate Purchase List",
+  "verifyProduct": "Verify Product",
+  "iHeardNotSure": "I heard '{rawProduct}', but I'm not sure which product it is. Please select:",
+  "@iHeardNotSure": {
+    "placeholders": {
+      "rawProduct": {
+        "type": "String"
+      }
+    }
+  },
+  "learnedAlias": "Learned! '{rawProduct}' is now '{canonical}'",
+  "@learnedAlias": {
+    "placeholders": {
+      "rawProduct": {
+        "type": "String"
+      },
+      "canonical": {
+        "type": "String"
+      }
+    }
+  },
+  "noneOfThese": "None of these"
+}

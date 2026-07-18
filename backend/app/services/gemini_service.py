@@ -22,178 +22,114 @@ class GeminiService:
             except Exception as e:
                 logger.error(f"Error configuring Gemini client: {e}")
         else:
-            logger.warning(
-                "\n"
-                "==================================================\n"
-                "MOCK GEMINI SERVICE ENABLED (NO API KEY)\n"
-                "GEMINI_API_KEY was not found in environment or .env file.\n"
-                "Gemini calls will return mock/heuristic responses.\n"
-                "To use real Gemini LLM capabilities, please perform:\n"
-                "========================\n"
-                "MANUAL STEP REQUIRED\n"
-                "========================\n"
-                "1. Generate an API Key from Google AI Studio.\n"
-                "2. Add 'GEMINI_API_KEY=<your_key>' in saudagar_ai/backend/.env\n"
-                "3. Restart the FastAPI server.\n"
-                "=================================================="
-            )
+            logger.warning("MOCK GEMINI SERVICE ENABLED (NO API KEY)")
 
-    def extract_demand_from_transcript(self, transcript: str) -> Dict[str, Any]:
-        """
-        Extracts structured demand info from a transcript.
-        Returns: {
-            "product": str,
-            "available": bool,
-            "alternative": Optional[str],
-            "purchase_completed": bool
-        }
-        """
-        prompt = f"""
-You are an AI that analyzes transcripts of conversations between CUSTOMERS and SHOPKEEPERS at Indian kirana (grocery) stores.
-The transcript may contain dialogue from MULTIPLE speakers — typically a customer asking for a product and the shopkeeper responding.
-Your job is to determine:
-1. What product was the customer looking for?
-2. Did the shopkeeper have it in stock? (available = true/false)
-3. Was an alternative product offered by the shopkeeper?
-4. Did the customer actually buy something? (purchase_completed = true/false)
+    def analyze_conversation_stage1(self, transcript: str) -> Optional[Dict[str, Any]]:
+        """Stage 1: Conversation Analyst"""
+        prompt = f"""You are reading a shopkeeper-customer conversation (Hindi/English/Hinglish,
+transliterated to Latin script).
 
-IMPORTANT RULES:
-- If the customer asks "X hai kya?" and the shopkeeper says "nahi" or "khatam" → available = false
-- If the shopkeeper says "haan" or hands over the product → available = true
-- If the shopkeeper suggests a different brand → that's the alternative
-- If the customer pays or says "de do" / "pack karo" → purchase_completed = true
-- The conversation might be in Hindi, Hinglish, Marathi, or English
+For every distinct product the CUSTOMER asked about:
+1. Identify the product exactly as spoken (do not clean, translate, or normalize it).
+2. Find the availability signal for that product - usually in the shopkeeper's next
+   1-2 turns. If a later turn uses a pronoun ("wo", "vo bhi", "ye", "voh") that refers
+   back to an earlier product, resolve it to that product.
+3. Classify availability as one of: "available", "unavailable", "unknown".
+4. Quote the exact shopkeeper phrase you used to decide - this is "evidence". If no
+   resolving turn exists, availability = "unknown" and evidence = "".
+5. Give a confidence score from 0 to 1 for how sure you are of this mapping.
 
-Provide your response strictly as a JSON object with keys:
-"product": (string, name of the product the customer asked for, e.g. "Maggi", "Dairy Milk", "Amul Butter")
-"available": (boolean, was the product available at the shop?)
-"alternative": (string or null, any alternative product suggested by the shopkeeper)
-"purchase_completed": (boolean, did the customer end up buying something?)
+Rules:
+- Do not merge two different products into one event.
+- Do not invent a product the customer never mentioned.
+- Do not resolve a pronoun unless there is a real prior product mention to point to.
+- If the turn is filler only (e.g. "haan", "de do", "please", "ek") with no product,
+  do not emit an event for it.
 
-Examples:
+Return ONLY valid JSON, no other text, in this exact schema:
+{{"events": [{{"customer_requested": "string", "availability": "available"|"unavailable"|"unknown", "evidence": "string", "resolved_from_pronoun": true|false, "confidence": 0.0}}]}}
 
-Transcript: "Bhaiya Maggi hai kya?"
-Output: {{"product": "Maggi", "available": false, "alternative": null, "purchase_completed": false}}
-
-Transcript: "Chocolate hai kya? Nahi bhai khatam ho gaya"
-Output: {{"product": "Chocolate", "available": false, "alternative": null, "purchase_completed": false}}
-
-Transcript: "Uncle Cadbury chocolate de do. Haan ye lijiye, 50 rupaye."
-Output: {{"product": "Cadbury", "available": true, "alternative": null, "purchase_completed": true}}
-
-Transcript: "Ata hai Aashirvaad? Nahi beta, Aashirvaad nahi hai. Fortune hai. Achha wahi de do."
-Output: {{"product": "Aashirvaad Ata", "available": false, "alternative": "Fortune Ata", "purchase_completed": true}}
-
-Transcript: "Bhaiya Surf Excel hai? Haan hai. Chhota wala de do. Ye lo."
-Output: {{"product": "Surf Excel", "available": true, "alternative": null, "purchase_completed": true}}
-
-Transcript: "Amul butter milega? Nahi butter khatam hai. Achha chodo phir."
-Output: {{"product": "Amul Butter", "available": false, "alternative": null, "purchase_completed": false}}
-
-Transcript: "Maggi do packet de do. Sorry bhai Maggi nahi hai, Yippee rakh lu? Haan chalo Yippee de do."
-Output: {{"product": "Maggi", "available": false, "alternative": "Yippee", "purchase_completed": true}}
-
-Transcript to analyze: "{transcript}"
-"""
+Transcript:
+{transcript}"""
         if self.client_enabled:
-            try:
-                # Use Gemini 2.5 Flash (gemini-2.0-flash)
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                data = json.loads(response.text.strip())
-                logger.info(f"Gemini raw response: {response.text}")
-                return data
-            except Exception as e:
-                logger.error(f"Gemini API call failed, falling back to mock: {e}")
-                
-        # Mock / Heuristic logic fallback
-        text = transcript.lower()
-        product = "Unknown Product"
-        available = False
-        alternative = None
-        purchase_completed = False
-
-        # Simple heuristic parser
-        if "maggi" in text or "maggie" in text:
-            product = "Maggi"
-        elif "butter" in text or "amul" in text:
-            product = "Amul Butter"
-        elif "colgate" in text:
-            product = "Colgate toothpaste"
-        elif "chocolate" in text or "cadbury" in text or "dairy milk" in text:
-            product = "Dairy Milk"
-        elif "surf excel" in text or "surf" in text:
-            product = "Surf Excel"
-        elif "lux" in text:
-            product = "Lux Soap"
-        else:
-            # Extract whatever is after "hai" or "de do" or similar, or just use the first few words
-            words = transcript.split()
-            if len(words) > 0:
-                product = words[-1].replace("?", "").replace(".", "")
-                if len(words) > 1 and product in ["hai", "de", "do", "bhaiya", "uncle"]:
-                    product = words[0]
-
-        # Determine availability/purchase
-        if "de do" in text or "le lo" in text or "pack kar" in text or "de" in text:
-            available = True
-            purchase_completed = True
-        if "nahi hai" in text or "khatam" in text or "out of stock" in text:
-            available = False
-            purchase_completed = False
-            if "yippee" in text or "fortune" in text or "alternativ" in text:
-                alternative = "Yippee"
-                available = False
-                purchase_completed = True
-                
-        logger.info(f"Mock Gemini extracted: product='{product}', available={available}, alternative='{alternative}', purchase_completed={purchase_completed}")
-        return {
-            "product": product,
-            "available": available,
-            "alternative": alternative,
-            "purchase_completed": purchase_completed
-        }
-
-    def resolve_unknown_product(self, raw_product_name: str, existing_canonical_names: List[str]) -> Optional[str]:
-        """
-        Uses Gemini to check if a raw product name is a semantic variant of existing canonical products.
-        Returns the canonical name if yes, otherwise None.
-        """
-        if not existing_canonical_names:
-            return None
-
-        prompt = f"""
-We have a list of canonical products in our system:
-{json.dumps(existing_canonical_names)}
-
-A customer asked for: "{raw_product_name}".
-Is this name a clear spelling variation, translation, or variant of one of the canonical products in the list?
-If yes, return the exact canonical product name from the list.
-If it is a completely different product, return null.
-
-Provide your response strictly as a JSON object with a single key:
-"matched_canonical": (string or null)
-"""
-        if self.client_enabled:
-            try:
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(
-                    prompt,
-                    generation_config={"response_mime_type": "application/json"}
-                )
-                data = json.loads(response.text.strip())
-                return data.get("matched_canonical")
-            except Exception as e:
-                logger.error(f"Gemini resolve_unknown_product failed: {e}")
-
-        # Basic fallback matching (simple lower case substring matching)
-        for canon in existing_canonical_names:
-            if raw_product_name.lower() in canon.lower() or canon.lower() in raw_product_name.lower():
-                return canon
+            for attempt in range(2): # 1 bounded retry
+                try:
+                    model = genai.GenerativeModel("gemini-2.0-flash")
+                    response = model.generate_content(
+                        prompt,
+                        generation_config={"response_mime_type": "application/json"}
+                    )
+                    data = json.loads(response.text.strip())
+                    
+                    # Validate schema
+                    if "events" not in data or not isinstance(data["events"], list):
+                        raise ValueError("Missing 'events' array")
+                        
+                    for event in data["events"]:
+                        keys = ["customer_requested", "availability", "evidence", "resolved_from_pronoun", "confidence"]
+                        if not all(k in event for k in keys):
+                            raise ValueError(f"Missing keys in event: {event}")
+                        if event["availability"] not in ["available", "unavailable", "unknown"]:
+                            raise ValueError(f"Invalid availability: {event['availability']}")
+                        if not isinstance(event["confidence"], (int, float)) or not (0 <= event["confidence"] <= 1):
+                            raise ValueError(f"Invalid confidence: {event['confidence']}")
+                            
+                    return data
+                except Exception as e:
+                    logger.warning(f"Stage 1 attempt {attempt+1} failed: {e}")
+            logger.error("Stage 1 failed after retry.")
         return None
+
+    def clean_product_stage3(self, customer_requested: str) -> str:
+        """Stage 3: Product Cleaner"""
+        prompt = f"""Clean this retail product name extracted from a customer conversation.
+
+Rules:
+- Remove duplicated words (e.g. "cream cream" -> "cream").
+- Remove filler words and honorifics (e.g. "bhaiya", "wala", "packet").
+- Do NOT invent, guess, or add a brand name that wasn't in the input.
+- Do NOT translate the product name.
+- Return ONLY the cleaned product name as a single line of plain text. No JSON,
+  no explanation, no punctuation beyond what the product name itself needs.
+
+Input: "{customer_requested}"
+"""
+        if self.client_enabled:
+            for attempt in range(2):
+                try:
+                    model = genai.GenerativeModel("gemini-2.0-flash")
+                    response = model.generate_content(prompt)
+                    return response.text.strip()
+                except Exception as e:
+                    logger.warning(f"Stage 3 attempt {attempt+1} failed: {e}")
+            logger.error("Stage 3 failed after retry.")
+        # Fallback to raw input if LLM fails
+        return customer_requested
+
+    def canonical_match_stage6(self, cleaned_product: str, catalog: List[str]) -> str:
+        """Stage 6: Canonical Matcher"""
+        bullet_list = "\n".join(f"- {item}" for item in catalog)
+        prompt = f"""A customer asked for a product in a retail shop. The exact phrase they used could
+not be confidently matched to the shop's catalog automatically.
+
+Extracted product phrase: "{cleaned_product}"
+
+Existing catalog products for this shop:
+{bullet_list}
+
+Choose the ONE catalog product that the phrase most likely refers to. If none of
+them are a reasonable match, return exactly: UNKNOWN
+
+Return ONLY the exact catalog product name as written above, or UNKNOWN. No other text.
+"""
+        if self.client_enabled:
+            try:
+                model = genai.GenerativeModel("gemini-2.0-flash")
+                response = model.generate_content(prompt)
+                return response.text.strip()
+            except Exception as e:
+                logger.error(f"Stage 6 failed: {e}")
+        return "UNKNOWN"
 
     def generate_procurement_recommendations(self, demand_summary: Dict[str, Any], business_insights: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

@@ -59,6 +59,30 @@ class ApiService {
     }
   }
 
+  /// Sends a confirmation for a product alias mapping.
+  Future<void> confirmProductAlias(String canonicalName, String newAlias) async {
+    final url = Uri.parse('$baseUrl/confirm-product-alias');
+    
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'shop_id': shopId,
+          'canonical_name': canonicalName,
+          'new_alias': newAlias,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to confirm alias: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error confirming alias: $e');
+      throw Exception('Failed to confirm alias: $e');
+    }
+  }
+
   /// Registers a new product inside our matching database catalog.
   Future<Map<String, dynamic>> addProduct({
     required String canonicalName,

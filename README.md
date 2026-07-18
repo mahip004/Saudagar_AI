@@ -177,18 +177,16 @@ flutter run -d chrome --web-port 3000
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/capture-demand` | Submit a Hinglish transcript for demand extraction |
-| `POST` | `/process-audio` | Upload audio file for Sarvam STT + demand capture |
-| `GET` | `/demand-events?shop_id=X` | Get all captured demand events |
-| `GET` | `/demand-summary?shop_id=X` | Get Pandas-aggregated demand metrics |
-| `GET` | `/business-insights` | Get weather, trends, and festival data |
-| `GET` | `/recommendations?shop_id=X` | Get AI procurement recommendations |
-| `GET` | `/products` | List all canonical products |
-| `POST` | `/products/seed` | Seed the product catalog |
-| `POST` | `/agents/run-intelligence` | Manually trigger demand intelligence agent |
-| `POST` | `/agents/run-advisor` | Manually trigger business intelligence agent |
-| `POST` | `/agents/run-procurement` | Manually trigger procurement agent |
-| `GET` | `/health` | Health check |
+| `POST` | `/capture-demand` | Submit a Hinglish transcript for demand NLU extraction & matching |
+| `POST` | `/upload-audio` | Upload recorded WAV audio for Sarvam STT transcription + demand capture |
+| `POST` | `/confirm-product-alias` | Register shopkeeper alias mapping for self-learning pipeline |
+| `GET` | `/recommendations?shop_id=X` | Retrieve AI-powered procurement recommendations |
+| `GET` | `/demand-summary?shop_id=X` | Retrieve Pandas-aggregated demand scores & stockout frequencies |
+| `GET` | `/business-insights` | Retrieve weather forecast, upcoming festivals, and search trends |
+| `GET` | `/products` | List all canonical products and their aliases |
+| `POST` | `/products` | Register a new canonical product and initial aliases |
+| `POST` | `/feedback` | Submit shopkeeper feedback on recommendations (Accept/Dismiss) |
+| `POST` | `/run-bi` | Force update Business Intelligence agent insights |
 
 ---
 

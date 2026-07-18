@@ -9,12 +9,14 @@ from typing import List, Optional
 from config import settings
 from app.models import (
     CaptureDemandRequest, CaptureDemandResponse, 
-    ProductModel, ProductResponse, FeedbackRequest
+    ProductModel, ProductResponse, FeedbackRequest,
+    ConfirmAliasRequest
 )
 
 # Import services
 from app.services.firestore_service import firestore_service
 from app.services.sarvam_service import sarvam_service
+from app.services.matching_service import matching_service
 
 # Import agents
 from app.agents.demand_capture import demand_capture_agent
@@ -54,15 +56,34 @@ def run_bi_agent_job():
     except Exception as e:
         logger.error(f"Failed to run Business Intelligence scheduler job: {e}")
 
+def run_refresh_cache_job():
+    try:
+        matching_service.refresh_cache()
+    except Exception as e:
+        logger.error(f"Failed to run matching service cache refresh job: {e}")
+
 @app.on_event("startup")
 def startup_event():
-    # Run the BI update immediately on startup to ensure Firestore has data
+    # Seed default catalog if empty in live Firestore database
+    try:
+        firestore_service.seed_products_if_empty()
+    except Exception as e:
+        logger.error(f"Failed to seed default catalog: {e}")
+
+    # 1. Warm up the RapidFuzz dictionary cache immediately from Firestore
+    run_refresh_cache_job()
+    
+    # 2. Run the BI update immediately on startup to ensure Firestore has data
     run_bi_agent_job()
     
-    # Schedule the BI Agent to run every 6 hours
+    # 3. Schedule the BI Agent to run every 6 hours
     scheduler.add_job(run_bi_agent_job, "interval", hours=6)
+    
+    # 4. Schedule the cache refresh to run every 1 hour
+    scheduler.add_job(run_refresh_cache_job, "interval", hours=1)
+    
     scheduler.start()
-    logger.info("APScheduler started successfully. Scheduled BI Agent to run every 6 hours.")
+    logger.info("APScheduler started successfully. Configured BI updates (6h) and dictionary cache refreshes (1h).")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -105,7 +126,9 @@ def capture_demand(request: CaptureDemandRequest, background_tasks: BackgroundTa
             available=event["available"],
             alternative=event["alternative"],
             purchase_completed=event["purchase_completed"],
-            timestamp=event["timestamp"]
+            timestamp=event["timestamp"],
+            needs_confirmation=event.get("needs_confirmation", False),
+            candidates=event.get("candidates", [])
         )
     except Exception as e:
         logger.error(f"Error capturing demand: {e}", exc_info=True)
@@ -151,11 +174,29 @@ async def upload_audio(
                 available=event["available"],
                 alternative=event["alternative"],
                 purchase_completed=event["purchase_completed"],
-                timestamp=event["timestamp"]
+                timestamp=event["timestamp"],
+                needs_confirmation=event.get("needs_confirmation", False),
+                candidates=event.get("candidates", [])
             )
         }
     except Exception as e:
         logger.error(f"Error handling audio upload: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/confirm-product-alias")
+def confirm_product_alias(request: ConfirmAliasRequest):
+    """
+    Called by the shopkeeper to confirm a product alias mapping.
+    Appends the new alias to the specified canonical product.
+    """
+    try:
+        success = firestore_service.add_product_alias(request.canonical_name, request.new_alias)
+        if success:
+            return {"status": "success", "message": f"Alias '{request.new_alias}' added to '{request.canonical_name}'"}
+        else:
+            raise HTTPException(status_code=404, detail="Canonical product not found.")
+    except Exception as e:
+        logger.error(f"Error confirming alias: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/recommendations")

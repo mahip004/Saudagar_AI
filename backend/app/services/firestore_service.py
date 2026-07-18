@@ -122,6 +122,31 @@ class FirestoreService:
         else:
             self.db = MockFirestoreClient()
 
+    def seed_products_if_empty(self):
+        """
+        Populates a default product catalog in Firestore if it is currently empty.
+        """
+        try:
+            if isinstance(self.db, MockFirestoreClient):
+                return
+            
+            # Check if products collection is empty
+            docs = self.db.collection("products").limit(1).stream()
+            if not list(docs):
+                logger.info("Live Firestore 'products' collection is empty. Seeding default product catalog...")
+                default_products = [
+                    {"canonical_name": "Maggi Noodles", "aliases": ["maggi", "maggie", "migi", "maggie noodles"], "category": "Packaged Foods", "brand": "Nestle"},
+                    {"canonical_name": "Amul Butter 100g", "aliases": ["amul butter", "butter amul", "makkhan"], "category": "Dairy", "brand": "Amul"},
+                    {"canonical_name": "Colgate Strong Teeth 150g", "aliases": ["colgate", "toothpaste colgate", "colgat"], "category": "Personal Care", "brand": "Colgate-Palmolive"},
+                    {"canonical_name": "Cadbury Dairy Milk 100g", "aliases": ["dairy milk", "chocolate dairy milk", "dary milk", "cadbury chocolate"], "category": "Confectionery", "brand": "Cadbury"},
+                ]
+                for p in default_products:
+                    # Insert directly without triggering refresh cache on each one to avoid recursion
+                    self.db.collection("products").add(p)
+                logger.info("Successfully seeded default catalog in Firestore!")
+        except Exception as e:
+            logger.error(f"Failed to seed products: {e}", exc_info=True)
+
     def get_products(self) -> List[Dict[str, Any]]:
         docs = self.db.collection("products").stream()
         products = []
@@ -136,16 +161,100 @@ class FirestoreService:
         doc_id = product_data.get("id")
         if doc_id:
             self.db.collection("products").document(doc_id).set(product_data)
-            return doc_id
         else:
             ref = self.db.collection("products")
             # If using mock DB
             if isinstance(self.db, MockFirestoreClient):
                 doc_id, _ = ref.add(product_data)
-                return doc_id
             else:
                 _, doc_ref = ref.add(product_data)
-                return doc_ref.id
+                doc_id = doc_ref.id
+
+        # Trigger cache refresh in matching service (import locally to avoid circular dependency)
+        try:
+            from app.services.matching_service import matching_service
+            matching_service.refresh_cache()
+        except Exception as ex:
+            logger.error(f"Error refreshing matching service cache after adding product: {ex}")
+
+        return doc_id
+
+    def add_product_alias(self, canonical_name: str, new_alias: str) -> bool:
+        """ Legacy global alias mechanism. Kept for backwards compatibility but shouldn't be used by new pipeline. """
+        pass
+
+    def get_shop_aliases(self, shop_id: str) -> Dict[str, str]:
+        """
+        Returns a dict mapping raw_phrase -> canonical_product_id for a specific shop.
+        Schema: shops/{shop_id}/aliases/{alias_id}
+        """
+        aliases = {}
+        try:
+            if isinstance(self.db, MockFirestoreClient):
+                # Simple in-memory mock for local testing
+                if "shops" not in self.db.memory_db:
+                    return aliases
+                shop_data = self.db.memory_db["shops"].get(shop_id, {})
+                for k, v in shop_data.get("aliases", {}).items():
+                    aliases[v.get("raw_phrase", "").lower()] = v.get("canonical_product_id")
+            else:
+                docs = self.db.collection("shops").document(shop_id).collection("aliases").stream()
+                for doc in docs:
+                    d = doc.to_dict()
+                    aliases[d.get("raw_phrase", "").lower()] = d.get("canonical_product_id")
+        except Exception as e:
+            logger.error(f"Error fetching shop aliases: {e}")
+        return aliases
+
+    def add_shop_alias(self, shop_id: str, raw_phrase: str, canonical_product_id: str) -> None:
+        """ Adds a confirmed alias directly to the shop's subcollection """
+        import uuid
+        alias_id = str(uuid.uuid4())
+        data = {
+            "raw_phrase": raw_phrase.lower(),
+            "canonical_product_id": canonical_product_id,
+            "confidence_at_creation": 1.0,
+            "created_by": "shopkeeper",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        if isinstance(self.db, MockFirestoreClient):
+            if "shops" not in self.db.memory_db:
+                self.db.memory_db["shops"] = {}
+            if shop_id not in self.db.memory_db["shops"]:
+                self.db.memory_db["shops"][shop_id] = {"aliases": {}}
+            self.db.memory_db["shops"][shop_id]["aliases"][alias_id] = data
+        else:
+            self.db.collection("shops").document(shop_id).collection("aliases").document(alias_id).set(data)
+            
+        # Trigger cache refresh in matching service
+        try:
+            from app.services.matching_service import matching_service
+            matching_service.refresh_cache()
+        except Exception as ex:
+            logger.error(f"Error refreshing matching service cache after adding shop alias: {ex}")
+
+    def flag_for_shopkeeper_whatsapp(self, shop_id: str, raw_phrase: str, candidates: List[str]) -> None:
+        """
+        Writes a special document that acts as a trigger for an external WhatsApp bot.
+        """
+        import uuid
+        trigger_id = str(uuid.uuid4())
+        data = {
+            "shop_id": shop_id,
+            "raw_phrase": raw_phrase,
+            "candidates": candidates,
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        if isinstance(self.db, MockFirestoreClient):
+            if "whatsapp_triggers" not in self.db.memory_db:
+                self.db.memory_db["whatsapp_triggers"] = {}
+            self.db.memory_db["whatsapp_triggers"][trigger_id] = data
+        else:
+            self.db.collection("whatsapp_triggers").document(trigger_id).set(data)
+        logger.info(f"Triggered WhatsApp flow for '{raw_phrase}' with candidates: {candidates}")
 
     def add_demand_event(self, event_data: Dict[str, Any]) -> str:
         ref = self.db.collection("demand_events")
