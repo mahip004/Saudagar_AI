@@ -13,7 +13,7 @@
 | High-level design | [HLD_Saudagar_AI.docx](HLD_Saudagar_AI.docx) |
 | Low-level design | [LLD_Saudagar_AI.docx](LLD_Saudagar_AI.docx) |
 | Open-source attribution | [OPEN_SOURCE_ATTRIBUTION.md](OPEN_SOURCE_ATTRIBUTION.md)
-Demo Video URL|
+Demo Video URL| [Demo Video](https://drive.google.com/drive/folders/1WORY7uJGi6ejz_F01DXgFRRUO7z5gQqA?usp=drive_link)
 
 ## Reviewer journey
 
