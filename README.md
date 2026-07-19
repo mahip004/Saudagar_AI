@@ -20,6 +20,14 @@
 
 ---
 
+## 📸 Screenshots
+
+| Demand Capture Terminal | AI Procurement Advisor |
+| :---: | :---: |
+| ![Demand Capture Terminal](docs/screenshot/demand_capture_terminal.png) | ![AI Procurement Advisor](docs/screenshot/procurement_advisor.png) |
+
+---
+
 ## 🎯 Problem Statement
 
 India's 12M+ kirana stores operate **completely offline** — no POS systems, no demand tracking. When a customer asks *"Bhaiya Maggi hai kya?"* and the shopkeeper says *"Nahi, khatam ho gaya"*, that **lost demand is invisible**. Saudagar AI captures it.
