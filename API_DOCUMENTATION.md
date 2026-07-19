@@ -1,221 +1,46 @@
 # Saudagar AI - API Documentation
 
-The Saudagar AI backend exposes REST endpoints for capturing demand, accessing aggregated intelligence metrics, and updating product catalogs.
+Local base URL: `http://localhost:8001`.
 
-Base URL: `http://localhost:8000` (Local Development)
+## Capture text demand
 
----
+`POST /capture-demand`
 
-## 1. Capture Demand (Text)
-Extracts structured product data from a text transcript and starts the analytics pipeline.
-
-* **Endpoint**: `/capture-demand`
-* **Method**: `POST`
-* **Content-Type**: `application/json`
-* **Request Body**:
 ```json
-{
-  "shop_id": "shop_001",
-  "transcript": "Bhaiya Maggi packet milega kya?"
-}
+{"shop_id":"shop_001","transcript":"Bhaiya Maggi packet milega kya?"}
 ```
 
-* **Response (200 OK)**:
-```json
-{
-  "event_id": "8d3e2a9b-4f5c-4d8a-9e1b-2c3d4e5f6g7h",
-  "product": "Maggi",
-  "canonical_product": "Maggi Noodles",
-  "available": false,
-  "alternative": null,
-  "purchase_completed": false,
-  "timestamp": "2026-07-16T23:15:20.123456"
-}
-```
+A successful `200` response includes `event_id`, `product`, `canonical_product`, `available`, `purchase_completed`, `timestamp`, `confidence`, and `availability`.
 
----
+If the extraction cannot produce a verified event, the endpoint returns `503` with a `detail` message. This could mean inference is unavailable, quota-limited, malformed, or that the transcript is insufficient; `503` does not distinguish these causes.
 
-## 2. Capture Demand (Audio Upload)
-Uploads recorded WAV audio, transcribes it via Sarvam AI, and passes the transcript to the capture demand pipeline.
+## Upload audio
 
-* **Endpoint**: `/upload-audio`
-* **Method**: `POST`
-* **Content-Type**: `multipart/form-data`
-* **Request Form**:
-  - `shop_id` (string): "shop_001"
-  - `file` (binary): recorded WAV file
+`POST /upload-audio` uses `multipart/form-data`: `shop_id` (string) and `file` (WAV audio). A successful `200` response contains `transcript` and `event`. Empty audio and Sarvam/provider failures currently surface as generic request errors unless no verified event is extracted, in which case the response is `503`.
 
-* **Response (200 OK)**:
-```json
-{
-  "transcript": "bhaiya ek amul butter de do aur biscuit",
-  "event": {
-    "event_id": "7a2b9c8d-3e4f-5g6h-7i8j-9k0l1m2n3o4p",
-    "product": "Amul Butter",
-    "canonical_product": "Amul Butter 100g",
-    "available": true,
-    "alternative": null,
-    "purchase_completed": true,
-    "timestamp": "2026-07-16T23:16:10.789123"
-  }
-}
-```
+## Endpoints
 
----
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/` | Basic backend liveness response |
+| GET/POST | `/products` | Read or add product catalogue items |
+| POST | `/confirm-product-alias` | Confirm an alias mapping |
+| GET | `/recommendations?shop_id=shop_001` | Get recommendations |
+| GET | `/demand-summary?shop_id=shop_001` | Get demand counts, scores, and trends |
+| GET | `/business-insights` | Get weather, trend scores, and festivals |
+| POST | `/feedback` | Save recommendation feedback |
+| POST | `/run-bi` | Trigger an immediate business-insights update |
 
-## 3. Get Recommendations
-Returns the current AI procurement advice for a shop.
+## Errors and limits
 
-* **Endpoint**: `/recommendations`
-* **Method**: `GET`
-* **Query Parameters**:
-  - `shop_id` (string): "shop_001"
+| Status | Current meaning |
+| --- | --- |
+| `200` | Request succeeded |
+| `404` | Alias confirmation could not find the canonical product |
+| `422` | Invalid or missing request fields |
+| `503` | No verified demand event could be extracted |
+| `500` | Unexpected processing, database, or external-service error |
 
-* **Response (200 OK)**:
-```json
-{
-  "shop_id": "shop_001",
-  "updated_at": "2026-07-16T23:15:25.654321",
-  "recommendations": [
-    {
-      "product": "Maggi Noodles",
-      "action": "Increase stock by 45%",
-      "reason": "This product went out-of-stock 3 times recently. Prepare inventory ahead of Raksha Bandhan.",
-      "percentage_increase": 45,
-      "priority": "HIGH"
-    }
-  ]
-}
-```
+The active inference service is **Groq**, configured with `GROQ_API_KEY` and `GROQ_MODEL` (default: `llama-3.3-70b-versatile`). `gemini_service.py` is a legacy filename only.
 
----
-
-## 4. Get Demand Summary
-Returns aggregated analytics computed via Pandas.
-
-* **Endpoint**: `/demand-summary`
-* **Method**: `GET`
-* **Query Parameters**:
-  - `shop_id` (string): "shop_001"
-
-* **Response (200 OK)**:
-```json
-{
-  "shop_id": "shop_001",
-  "updated_at": "2026-07-16T23:15:21.098765",
-  "unavailable_counts": {
-    "Maggi Noodles": 3,
-    "Amul Butter 100g": 0
-  },
-  "request_frequencies": {
-    "Maggi Noodles": 5,
-    "Amul Butter 100g": 2
-  },
-  "demand_scores": {
-    "Maggi Noodles": 10.0,
-    "Amul Butter 100g": 1.0
-  },
-  "trending_products": [
-    "Maggi Noodles"
-  ]
-}
-```
-
----
-
-## 5. Get Business Insights
-Returns the latest local weather conditions, search trend indexes, and upcoming festival schedules.
-
-* **Endpoint**: `/business-insights`
-* **Method**: `GET`
-
-* **Response (200 OK)**:
-```json
-{
-  "updated_at": "2026-07-16T23:12:14.000000",
-  "weather": {
-    "city": "Mumbai",
-    "temp": 29.0,
-    "condition": "Rainy",
-    "humidity": 88,
-    "source": "Seasonal Mock (No Key)"
-  },
-  "trends": {
-    "packaged_foods": 85,
-    "beverages": 65,
-    "hygiene": 50,
-    "confectionery": 50
-  },
-  "festivals": [
-    {
-      "name": "Raksha Bandhan",
-      "date": "2026-08-28",
-      "days_away": 42,
-      "impact_categories": ["Confectionery", "Chocolates", "Gift Packs", "Pooja Items"],
-      "description": "Sisters tie rakhis on brothers' wrists. Heavy demand for premium sweets and chocolate gift packs."
-    }
-  ]
-}
-```
-
----
-
-## 6. Catalog Management (Products)
-Allows viewing and inserting catalog templates containing aliases for fuzzy matches.
-
-* **Get Catalog**: `GET /products`
-  * **Response**: List of all products.
-
-* **Add Product**: `POST /products`
-  * **Request Body**:
-```json
-{
-  "canonical_name": "Lux Soft Touch Soap 100g",
-  "aliases": ["lux", "luks", "soap lux", "lux sabun"],
-  "category": "Hygiene",
-  "brand": "Unilever"
-}
-```
-  * **Response**: Registered Product document with Firestore ID.
-
-* **Confirm Product Alias**: `POST /confirm-product-alias`
-  * **Request Body**:
-```json
-{
-  "shop_id": "shop_001",
-  "canonical_name": "Maggi Noodles",
-  "new_alias": "migi"
-}
-```
-  * **Response (200 OK)**:
-```json
-{
-  "status": "success",
-  "message": "Alias 'migi' added to 'Maggi Noodles'"
-}
-```
-
----
-
-## 7. Submit Feedback
-Records shopkeeper decisions to Accept or Dismiss AI procurement advice.
-
-* **Endpoint**: `/feedback`
-* **Method**: `POST`
-* **Request Body**:
-```json
-{
-  "shop_id": "shop_001",
-  "recommendation_id": "0",
-  "feedback": "ACCEPTED",
-  "comments": "Accepted recommendation: Order placed."
-}
-```
-
-* **Response (200 OK)**:
-```json
-{
-  "status": "success",
-  "feedback_id": "feedback_doc_id"
-}
-```
+There is no stable provider-error format yet: rate limits (`429`), quota exhaustion, invalid credentials, timeouts, and upstream `5xx` responses are not mapped to distinct client-facing codes or `Retry-After` values. Clients should treat non-`200` responses as failures and allow the user to retry.

@@ -1,77 +1,46 @@
 # Saudagar AI - System Architecture
 
-This document details the software architecture, sequence diagrams, and agent roles for Saudagar AI.
-
----
-
-## Architecture Diagram (Event-Driven Data Flow)
+## Data flow
 
 ```mermaid
-graph TD
-    A[Flutter App UI] -->|1. Record Voice / Select Demo| B(Sarvam AI Saras v3 STT)
-    B -->|2. Returns Hinglish Transcript| A
-    A -->|3. POST /capture-demand| C[FastAPI Cloud Backend]
-    
-    subgraph FastAPI Agent & Service Layer
-        C -->|4. Request Extraction| D[Gemini 2.5 Flash]
-        D -->|5. Extract Product & Availability| C
-        C -->|6. Run Fuzzy Align| E[RapidFuzz Alias Mapping]
-        E -->|7. Return Canonical Name| C
-    end
-    
-    C -->|8. Add Demand Event| F[(Firestore: demand_events)]
-    
-    subgraph Asynchronous Event Listeners
-        F -->|Trigger on doc write| G[Demand Intelligence Agent]
-        G -->|9. Fetch last 30d events| F
-        G -->|10. Calculate score & trends using Pandas| H[(Firestore: demand_summary)]
-        
-        H -->|Trigger on summary change| I[Procurement Agent]
-        J[(Firestore: business_insights)] -->|11. Read insights| I
-        H -->|11. Read statistics| I
-        I -->|12. Reasoning via Gemini| K[Gemini 2.5 Flash]
-        K -->|13. Write suggestions| L[(Firestore: recommendations)]
-    end
-    
-    subgraph Background Scheduler
-        M[APScheduler] -->|Every 6 hours| N[Business Intelligence Agent]
-        N -->|14. Fetch weather OpenWeather & google trends| O[External APIs]
-        N -->|15. Read static holidays| P[festivals.json]
-        N -->|16. Update insights| J
-    end
-    
-    L -->|17. Realtime Sync Snapshot| A
-    J -->|17. Realtime Sync Snapshot| A
-    H -->|17. Realtime Sync Snapshot| A
+flowchart TD
+  UI[Flutter client] --> API[FastAPI backend]
+  UI -. optional read-only snapshots .-> DB[(Firestore)]
+  API -->|audio only| STT[Sarvam speech-to-text]
+  API --> LLM[Groq OpenAI-compatible inference API]
+  API --> WEATHER[OpenWeather]
+  API --> DB
+  API --> BG[FastAPI background tasks]
+  BG --> DI[Demand intelligence: Pandas]
+  DI --> DB
+  DI --> PA[Procurement agent]
+  PA --> LLM
+  PA --> DB
+  SCHED[APScheduler: startup + each 6h] --> BI[Business intelligence]
+  BI --> WEATHER
+  BI --> DB
 ```
 
----
+`backend/app/services/gemini_service.py` is a legacy filename. Its active HTTP client calls Groq using `GROQ_API_KEY`; it does not call Gemini at runtime.
 
-## Agent Roles and Specifications
+## Components
 
-### 1. Demand Capture Agent
-- **Trigger**: Receives POST to `/capture-demand` (or audio bytes on `/upload-audio`).
-- **Function**: Uses Gemini to extract a structured representation of the customer's request. Uses RapidFuzz to match spelling/variant aliases against the catalog. If unresolved, queries Gemini to match existing categories.
-- **Write**: Stores the final aligned request in the `demand_events` collection.
+- **Flutter client:** captures audio/text and displays dashboard data. With `useLiveFirestore=false`, it polls FastAPI rather than listening to Firestore.
+- **FastAPI:** owns all writes, validates request bodies with Pydantic, runs the capture pipeline, and schedules background processing.
+- **Demand capture:** uses two LLM passes for extraction and verification. Only verified events are persisted.
+- **Demand intelligence:** aggregates up to 500 events for a shop via Pandas, then triggers procurement recommendation generation.
+- **Business intelligence:** obtains Mumbai weather, reads the local festival calendar, and derives simple weather-based trend scores.
+- **Firestore:** persists catalogue, events, summaries, insights, recommendations, and feedback when configured.
 
-### 2. Demand Intelligence Agent
-- **Trigger**: Fires immediately after the Demand Capture Agent writes a new event (simulated via FastAPI BackgroundTasks).
-- **Function**: Queries all recent events for the specific shop, parses them into a Pandas DataFrame, and calculates aggregated metrics (unavailable counts, request frequency, demand scores, moving averages).
-- **Write**: Overwrites the single document for the shop in `demand_summary`.
+## Resilience boundary
 
-### 3. Business Intelligence Agent
-- **Trigger**: APScheduler runs it once on startup and then every 6 hours.
-- **Function**: Gathers external variables: local weather (OpenWeather API), search interest metrics (Google Trends), and upcoming public holidays (local `festivals.json`).
-- **Write**: Overwrites the `latest` document in `business_insights`.
+At startup, an unavailable Firestore configuration selects an in-memory mock database. Weather has a seasonal mock fallback. Missing Sarvam credentials return mock transcription. LLM recommendation generation can return rule-based recommendations; however, failed/ambiguous LLM demand extraction is rejected rather than stored.
 
-### 4. Procurement Agent
-- **Trigger**: Conceptually listens to `demand_summary` changes. Simulated via direct trigger after `demand_summary` updates.
-- **Function**: Reads the updated `demand_summary` and `business_insights`. Feeds both JSON bodies into Gemini 2.5 Flash with specific instructions to generate purchasing instructions (increase factor, category alignment, timing) matching the `ProcurementRecommendation` schema.
-- **Write**: Updates the shop's document in the `recommendations` collection.
+The application currently has no provider-specific rate-limit handling, automatic runtime Firestore failover, durable offline queue, dependency-health endpoint, or monitoring/alerting. HTTP polling silently ignores failed polls, so stale dashboard data is possible. These constraints are intentional prototype limitations and must be addressed before a production deployment.
 
----
+## Security notes
 
-## Security Framework
-- **Secrets Isolation**: No API keys (Gemini, Sarvam AI, OpenWeather) or Firebase private credentials are ever stored or transmitted to the Flutter client.
-- **Direct-to-Client DB Streaming**: The Flutter client establishes read-only listening streams directly to Firestore public client channels (`demand_summary`, `business_insights`, `recommendations`).
-- **Restricted Database Writes**: The client is prohibited from writing to Firestore. All state transitions are initiated through FastAPI, which utilizes the Firebase Admin SDK on secure server instances.
+- API/service credentials are backend-only; do not place them in Flutter configuration.
+- The client should have read-only Firestore access limited to its intended collections.
+- The current CORS wildcard is for prototype development. Configure explicit production origins.
+- Treat the mock Firestore database as non-persistent demo data, not as a backup.

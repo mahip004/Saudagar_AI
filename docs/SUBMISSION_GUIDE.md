@@ -6,7 +6,7 @@
 |---|---|
 | Product | Saudagar AI - voice-led demand capture and procurement intelligence for kirana stores |
 | Apk-download-Link       | https://drive.google.com/file/d/1Ek5OELKtCBaXq4GQN0TzGmLD-KfTbqDT/view?usp=drive_link |
-| Hosted backend / API URL | `https://saudagar-ai-api.onrender.com |
+| Hosted backend / API URL | `https://saudagar-ai-api.onrender.com` |
 | Source repository | `TBD - add public or reviewer-access repository URL before submission` |
 | Local setup guide | [README.md](../README.md) |
 | Architecture overview | [SYSTEM_ARCHITECTURE.md](../SYSTEM_ARCHITECTURE.md) |
@@ -28,7 +28,7 @@
 # Backend
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8001
 
 # Flutter client (new terminal)
 cd frontend
@@ -36,7 +36,7 @@ flutter pub get
 flutter run
 ```
 
-Configure the required API/service credentials using the backend environment configuration described in the main README. In the absence of Firebase credentials, the backend uses its in-memory mock Firestore implementation for local demonstration.
+Configure the required API/service credentials using the backend environment configuration described in the main README. The active LLM provider is Groq (`GROQ_API_KEY`, optional `GROQ_MODEL`); the `gemini_service.py` filename is legacy. In the absence of Firebase credentials, the backend uses its in-memory mock Firestore implementation for local demonstration only.
 
 ## Pre-submission owner checklist
 

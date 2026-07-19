@@ -2,6 +2,8 @@
 
 This file provides a directory hierarchy and reference index for all files written during Saudagar AI implementation.
 
+> Runtime note: `backend/app/services/gemini_service.py` is retained as a legacy filename. The active implementation calls Groq using `GROQ_API_KEY` and defaults to the `llama-3.3-70b-versatile` model.
+
 ---
 
 ## Folder Tree

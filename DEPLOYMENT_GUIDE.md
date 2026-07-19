@@ -26,7 +26,7 @@ service cloud.firestore {
   }
 }
 ```
-5. Go to **Project Settings -> Service Accounts**, click **Generate New Private Key**, and download the JSON. Place it at `backend/service-account.json`.
+5. Go to **Project Settings -> Service Accounts**, click **Generate New Private Key**, and download the JSON. For local development, place it at `backend/service-account.json`. For production, prefer the `FIREBASE_SERVICE_ACCOUNT` environment variable containing the JSON rather than shipping a credential file in the image.
 
 ---
 
@@ -52,9 +52,19 @@ gcloud run deploy saudagar-backend \
     --platform managed \
     --region us-central1 \
     --allow-unauthenticated \
-    --set-env-vars="GEMINI_API_KEY=your_gemini_key,SARVAM_API_KEY=your_sarvam_key,OPENWEATHER_API_KEY=your_weather_key"
+    --set-env-vars="GROQ_API_KEY=your_groq_key,GROQ_MODEL=llama-3.3-70b-versatile,SARVAM_API_KEY=your_sarvam_key,OPENWEATHER_API_KEY=your_weather_key"
 ```
 *Take note of the Service URL returned by Cloud Run (e.g., `https://saudagar-backend-xxxxx.run.app`).*
+
+The active LLM integration is Groq. `gemini_service.py` is a legacy filename; `GEMINI_API_KEY` is not used by the active inference code.
+
+### Production reliability checklist
+
+- Configure `FIREBASE_SERVICE_ACCOUNT` securely and confirm the service is using live Firestore, not the in-memory demo fallback.
+- Restrict CORS to the deployed frontend origin; the current wildcard is only suitable for a prototype.
+- Add structured handling for provider `429`, `401`/`403`, timeout, and `5xx` responses before relying on the service operationally. The current backend logs these failures but does not expose provider-specific error codes or retry timing.
+- Add monitoring/alerting and dependency health checks. The root endpoint confirms that FastAPI is running; it does not prove Groq, Sarvam, Firestore, or OpenWeather are healthy.
+- Do not treat in-memory Firestore, mock STT, or seasonal weather as a production fallback: they are local-demo behaviour and may lead to non-persistent or synthetic data.
 
 ---
 

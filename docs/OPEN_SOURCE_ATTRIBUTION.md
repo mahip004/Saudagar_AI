@@ -12,7 +12,7 @@ This register identifies the direct open-source libraries and frameworks used by
 | Pydantic | 2.7.4 | MIT | Request/response validation and schemas | https://github.com/pydantic/pydantic |
 | pydantic-settings | 2.3.3 | MIT | Environment-based configuration | https://github.com/pydantic/pydantic-settings |
 | Firebase Admin Python SDK | 6.5.0 | Apache-2.0 | Secure server-side Firestore access | https://github.com/firebase/firebase-admin-python |
-| Google Generative AI Python SDK | 0.7.2 | Apache-2.0 | Gemini model integration | https://github.com/google-gemini/generative-ai-python |
+| Google Generative AI Python SDK | 0.7.2 | Apache-2.0 | Declared backend dependency; not used by the active inference implementation | https://github.com/google-gemini/generative-ai-python |
 | RapidFuzz | 3.9.3 | MIT | Product and alias fuzzy matching | https://github.com/rapidfuzz/RapidFuzz |
 | pandas | 2.2.2 | BSD-3-Clause | Demand aggregation and scoring | https://github.com/pandas-dev/pandas |
 | HTTPX | 0.27.0 | BSD-3-Clause | External HTTP requests | https://github.com/encode/httpx |
@@ -35,7 +35,7 @@ This register identifies the direct open-source libraries and frameworks used by
 
 ## External services and data providers
 
-The prototype integrates service APIs rather than redistributing their software: Google Gemini (reasoning and extraction), Sarvam AI (speech-to-text), Firebase/Cloud Firestore (managed datastore), and optional weather/trend data sources. Their use is governed by their respective service terms and credentials must remain server-side.
+The prototype integrates service APIs rather than redistributing their software: Groq's OpenAI-compatible inference endpoint (reasoning and extraction; default model `llama-3.3-70b-versatile`), Sarvam AI (speech-to-text), Firebase/Cloud Firestore (managed datastore), and OpenWeather (weather). Their use is governed by their respective service terms and credentials must remain server-side. The `google-generativeai` package remains declared but is not used by the active runtime path.
 
 ## Attribution and compliance notes
 

@@ -5,7 +5,7 @@
 - [x] Technical implementation plan approved
 - [x] Create FastAPI backend config and models (`backend/config.py`, `backend/app/models.py`)
 - [x] Implement RapidFuzz alias matching service (`backend/app/services/matching_service.py`)
-- [x] Implement Gemini & Sarvam service wrappers (`backend/app/services/gemini_service.py`, `backend/app/services/sarvam_service.py`)
+- [x] Implement Groq inference and Sarvam service wrappers (`backend/app/services/gemini_service.py`, `backend/app/services/sarvam_service.py`)
 - [x] Implement Firestore repository service with mock fallback (`backend/app/services/firestore_service.py`)
 - [x] Create Agents:
   - [x] Demand Capture Agent (`backend/app/agents/demand_capture.py`)
@@ -27,6 +27,8 @@
     - *Optimized with thread-safe in-memory cache loaded at startup and dynamically refreshed on product/alias updates.*
     - *Parsed dynamically to support both string list and dictionary alias models in Firestore.*
     - *Added auto-seeding logic to populate default catalog templates to empty Firestore databases.*
+
+  - The historical references to Gemini in this section refer to the legacy service filename; active inference now uses Groq.
   - [x] Shopkeeper Confirmation UI (bottom sheet) for low-confidence AI mappings
     - *Integrated with translation keys and updated text styles for high contrast readability in Dark Mode.*
   - [x] Hindi Localization (English/Hindi toggle)
@@ -53,7 +55,7 @@ MANUAL STEP REQUIRED
    - Go to Project Settings -> Service Accounts -> Generate New Private Key. Save key as `saudagar_ai/backend/service-account.json`.
    - Create a Web App, note down Firebase config keys and configure them in the Flutter app config `frontend/lib/config.dart`.
 2. **Environment Variables Config**:
-   - Set up API Keys for Gemini, Sarvam AI, and OpenWeather Map in `backend/.env` or as OS environment variables.
+   - Set up `GROQ_API_KEY` (and optionally `GROQ_MODEL`), Sarvam AI, and OpenWeather Map credentials in `backend/.env` or as OS environment variables.
 
 ## Folder Structure
 ```
@@ -89,22 +91,25 @@ saudagar_ai/
 ```
 
 ## Deployment Status
-- Ready for Deployment (Local Development Mode is operational with mock fallbacks).
+- Prototype-ready for local demonstration. Before production use, add provider-specific error mapping, rate-limit/backoff support, monitoring, dependency health checks, and a durable offline queue.
 
 ## APIs Configured
-- Gemini 2.5 Flash API (Configured, supports fallback mock)
-- Sarvam AI Speech-to-Text API (Configured, supports fallback mock)
-- Firebase Firestore (Configured, supports local mock database)
-- OpenWeather API (Configured, supports seasonal fallback forecast)
+- Groq OpenAI-compatible inference API (default model: `llama-3.3-70b-versatile`; service file retains the legacy name `gemini_service.py`)
+- Sarvam AI Speech-to-Text API (mock transcript when no key is configured)
+- Firebase Firestore (local in-memory fallback only when Firebase cannot initialise)
+- OpenWeather API (seasonal mock forecast on missing key/request failure)
 
 ## Environment Variables
-- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `GROQ_MODEL` (optional; defaults to `llama-3.3-70b-versatile`)
 - `SARVAM_API_KEY`
 - `OPENWEATHER_API_KEY`
-- `FIREBASE_CREDENTIALS` (or placing `service-account.json` in the backend root)
+- `FIREBASE_SERVICE_ACCOUNT` (production) or `FIREBASE_CREDENTIALS_PATH` (local file path)
 
-## Bugs
-- None (All tests pass; mock fail-safes are operational).
+## Known limitations
+- A `429` rate limit, quota exhaustion, invalid credential, timeout, and upstream `5xx` are not currently exposed as distinct client-facing error categories.
+- Live Firestore errors after startup do not automatically fail over to the in-memory store.
+- HTTP dashboard polling silently ignores failed polls, which can display stale values.
 
 ## Future Improvements
 - Multi-tenant shop credentials.
