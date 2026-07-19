@@ -24,7 +24,7 @@
 
 | Demand Capture Terminal | AI Procurement Advisor |
 | :---: | :---: |
-| ![Demand Capture Terminal](docs/screenshot/demand_capture_terminal.png) | ![AI Procurement Advisor](docs/screenshot/procurement_advisor.png) |
+| ![Demand Capture Terminal](docs/screenshots/demand_capture_terminal.png) | ![AI Procurement Advisor](docs/screenshots/procurement_advisor.png) |
 
 ---
 
