@@ -1,6 +1,6 @@
 class AppConfig {
   // FastAPI Backend Endpoint URL
-  static const String backendUrl = 'http://localhost:8001';
+  static const String backendUrl = 'https://saudagar-ai-api.onrender.com';
   
   // Default Shop ID representing the Kirana Store
   static const String shopId = 'shop_001';

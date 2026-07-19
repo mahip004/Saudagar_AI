@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -107,15 +108,27 @@ class FirestoreService:
         self._initialize_firebase()
 
     def _initialize_firebase(self):
+        service_account_json = settings.FIREBASE_SERVICE_ACCOUNT
         cred_path = settings.FIREBASE_CREDENTIALS_PATH
-        if os.path.exists(cred_path):
+        if service_account_json:
             try:
                 # Avoid duplicate app initialization
+                if not firebase_admin._apps:
+                    cred = credentials.Certificate(json.loads(service_account_json))
+                    firebase_admin.initialize_app(cred)
+                self.db = firestore.client()
+                logger.info("Successfully connected to live Firebase Firestore using environment credentials!")
+            except Exception as e:
+                logger.error(f"Error initializing Firebase with environment credentials: {e}")
+                self.db = MockFirestoreClient()
+        elif os.path.exists(cred_path):
+            try:
+                # Local development path only; production should use FIREBASE_SERVICE_ACCOUNT.
                 if not firebase_admin._apps:
                     cred = credentials.Certificate(cred_path)
                     firebase_admin.initialize_app(cred)
                 self.db = firestore.client()
-                logger.info("Successfully connected to live Firebase Firestore!")
+                logger.info("Successfully connected to live Firebase Firestore using credentials file!")
             except Exception as e:
                 logger.error(f"Error initializing Firebase with credentials file: {e}")
                 self.db = MockFirestoreClient()

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = "service-account.json"
+    FIREBASE_SERVICE_ACCOUNT: Optional[str] = None
     
     # Server configuration
     HOST: str = "0.0.0.0"

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -200,9 +201,14 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
             _recordingStatus = AppLocalizations.of(context)?.translate('recordingVoice') ?? "Recording voice... Tap again to send";
           });
           // Start recording
+          // Android requires an absolute, writable path for recorded files.
+          // A relative name such as `recording.wav` works in some debug
+          // environments but fails in a packaged APK.
+          final temporaryDirectory = await getTemporaryDirectory();
+          final recordingPath = '${temporaryDirectory.path}/recording.wav';
           await _audioRecorder.start(
             const RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000),
-            path: 'recording.wav',
+            path: recordingPath,
           );
         } else {
           setState(() {
@@ -383,12 +389,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   }
 
   Widget _buildHeader(ApiService apiService) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
@@ -419,11 +424,15 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 style: const TextStyle(fontSize: 12, color: Color(0x61FFFFFF)),
                 overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
+          ],
         ),
-        Row(
-          children: [
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Wrap(
+            spacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
             IconButton(
               icon: Icon(
                 Provider.of<LocaleProvider>(context).locale.languageCode == 'hi'
@@ -461,7 +470,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ],
     );
