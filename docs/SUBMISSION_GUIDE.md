@@ -6,13 +6,14 @@
 |---|---|
 | Product | Saudagar AI - voice-led demand capture and procurement intelligence for kirana stores |
 | Apk-download-Link       | https://drive.google.com/file/d/1Ek5OELKtCBaXq4GQN0TzGmLD-KfTbqDT/view?usp=drive_link |
-| Hosted backend / API URL | `https://saudagar-ai-api.onrender.com` |
-| Source repository | `TBD - add public or reviewer-access repository URL before submission` |
+| Hosted backend / API URL | https://saudagar-ai-api.onrender.com |
+| Source repository | https://github.com/mahip004/Saudagar_AI |
 | Local setup guide | [README.md](../README.md) |
 | Architecture overview | [SYSTEM_ARCHITECTURE.md](../SYSTEM_ARCHITECTURE.md) |
 | High-level design | [HLD_Saudagar_AI.docx](HLD_Saudagar_AI.docx) |
 | Low-level design | [LLD_Saudagar_AI.docx](LLD_Saudagar_AI.docx) |
-| Open-source attribution | [OPEN_SOURCE_ATTRIBUTION.md](OPEN_SOURCE_ATTRIBUTION.md) |
+| Open-source attribution | [OPEN_SOURCE_ATTRIBUTION.md](OPEN_SOURCE_ATTRIBUTION.md)
+Demo Video URL|
 
 ## Reviewer journey
 
@@ -38,11 +39,3 @@ flutter run
 
 Configure the required API/service credentials using the backend environment configuration described in the main README. The active LLM provider is Groq (`GROQ_API_KEY`, optional `GROQ_MODEL`); the `gemini_service.py` filename is legacy. In the absence of Firebase credentials, the backend uses its in-memory mock Firestore implementation for local demonstration only.
 
-## Pre-submission owner checklist
-
-- [ ] Replace every `TBD` URL above with the final reviewer-accessible link.
-- [ ] Confirm repository visibility and remove any secrets or private service-account files.
-- [ ] Confirm the live backend accepts the intended CORS origins rather than the prototype wildcard setting.
-- [ ] Demonstrate one text and one audio capture scenario end to end.
-- [ ] Verify the final version of the source repository includes this guide and the attribution register.
-- [ ] Attach the HLD and LLD documents where the submission portal accepts files.
